@@ -15,7 +15,9 @@ from configure import (
     configure_job_locations,
     refresh_source_documents,
     refresh_online_presence,
+    create_search_queries,
 )
+from search_jobs import search
 
 
 def display_user_info(user: User, skip: bool = False):
@@ -118,6 +120,53 @@ def user_info_menu(user: User, skip_first_display: bool = False):
             refresh_online_presence(user)
 
 
+def search_menu(user: User):
+    """Search for jobs menu."""
+    print_header("Search for Jobs")
+
+    num_queries = len(user.query_handler)
+    num_jobs = len(user.job_handler)
+
+    print(f"  {Colors.DIM}Search queries: {num_queries}{Colors.RESET}")
+    print(f"  {Colors.DIM}Jobs found: {num_jobs}{Colors.RESET}\n")
+
+    if num_queries == 0:
+        print(f"{Colors.YELLOW}No search queries configured.{Colors.RESET}")
+        generate = inquirer.confirm(
+            message="Would you like to generate search queries now?",
+            default=True
+        ).execute()
+        if generate:
+            create_search_queries(user)
+            num_queries = len(user.query_handler)
+            if num_queries == 0:
+                print(f"\n{Colors.DIM}No queries generated. Configure job titles and locations first.{Colors.RESET}\n")
+                return
+        else:
+            return
+
+    action = inquirer.select(
+        message="What would you like to do?",
+        choices=[
+            {"name": f"Run search ({num_queries} queries)", "value": "search"},
+            {"name": "Generate new queries", "value": "generate"},
+            {"name": "← Back to main menu", "value": "back"},
+        ],
+    ).execute()
+
+    if action == "back":
+        return
+    elif action == "generate":
+        create_search_queries(user)
+    elif action == "search":
+        fetch_desc = inquirer.confirm(
+            message="Fetch full job descriptions? (slower but more complete)",
+            default=True
+        ).execute()
+        search(user, fetch_descriptions=fetch_desc)
+        print()
+
+
 def main_menu(user: User):
     """Main application menu."""
     while True:
@@ -141,7 +190,7 @@ def main_menu(user: User):
         elif action == "user":
             user_info_menu(user)
         elif action == "search":
-            print(f"\n{Colors.DIM}Search functionality coming soon...{Colors.RESET}\n")
+            search_menu(user)
         elif action == "jobs":
             print(f"\n{Colors.DIM}Jobs view coming soon...{Colors.RESET}\n")
         elif action == "cover":

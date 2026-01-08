@@ -2,7 +2,7 @@
 
 import json
 from utils import run_claude, scrape
-from data_handlers import JOBS, SEARCH_QUERIES, USER
+from data_handlers import User
 
 
 def search_query(query: str) -> list[dict]:
@@ -105,8 +105,8 @@ def process_query(query) -> list[dict]:
     return jobs_found
 
 
-def filter_duplicates(jobs: list[dict]) -> list[dict]:
-    """Filter out jobs that already exist in JOBS."""
+def filter_duplicates(jobs: list[dict], user: User) -> list[dict]:
+    """Filter out jobs that already exist in user's job handler."""
     new_jobs = []
     seen_links = set()
 
@@ -116,7 +116,7 @@ def filter_duplicates(jobs: list[dict]) -> list[dict]:
             continue
         if link in seen_links:
             continue
-        if JOBS.has_link(link):
+        if user.job_handler.has_link(link):
             print(f"  Skipping duplicate: {job_data.get('title', 'Unknown')}")
             continue
         seen_links.add(link)
@@ -186,16 +186,21 @@ If no jobs are suitable, return: []"""
     return jobs
 
 
-def search(max_queries: int = None, fetch_descriptions: bool = True):
+def search(user: User, max_queries: int = None, fetch_descriptions: bool = True):
     """Search for jobs using all queries.
 
     Args:
+        user: User object with query_handler and job_handler
         max_queries: Limit number of queries to process (for testing)
         fetch_descriptions: Whether to scrape full descriptions (slower but more complete)
     """
-    queries = list(SEARCH_QUERIES)
+    queries = list(user.query_handler)
     if max_queries:
         queries = queries[:max_queries]
+
+    if not queries:
+        print("No search queries configured. Generate queries first.")
+        return
 
     print(f"Searching with {len(queries)} queries...")
     all_jobs = []
@@ -210,7 +215,7 @@ def search(max_queries: int = None, fetch_descriptions: bool = True):
 
     # Filter duplicates
     print("\nFiltering duplicates...")
-    all_jobs = filter_duplicates(all_jobs)
+    all_jobs = filter_duplicates(all_jobs, user)
     print(f"  {len(all_jobs)} new jobs after deduplication")
 
     if not all_jobs:
@@ -231,17 +236,17 @@ def search(max_queries: int = None, fetch_descriptions: bool = True):
 
     # Phase 3: Filter unsuitable jobs
     print(f"\nFiltering unsuitable jobs...")
-    all_jobs = filter_unsuitable(all_jobs, USER._combined_source_documents)
+    all_jobs = filter_unsuitable(all_jobs, user._combined_source_documents)
     print(f"  {len(all_jobs)} suitable jobs remaining")
 
     if not all_jobs:
         print("\nNo suitable jobs found.")
         return
 
-    # Add to JOBS
+    # Add to job handler
     print(f"\nAdding {len(all_jobs)} jobs to database...")
     for job_data in all_jobs:
-        job = JOBS.add(
+        job = user.job_handler.add(
             company=job_data.get("company", "Unknown"),
             title=job_data.get("title", "Unknown"),
             link=job_data.get("link", ""),
@@ -252,9 +257,5 @@ def search(max_queries: int = None, fetch_descriptions: bool = True):
         )
         print(f"  Added: {job.title} at {job.company} ({job.id})")
 
-    JOBS.save()
-    print(f"\nDone! Added {len(all_jobs)} new jobs. Total jobs: {len(JOBS)}")
-
-
-if __name__ == "__main__":
-    search()
+    user.job_handler.save()
+    print(f"\nDone! Added {len(all_jobs)} new jobs. Total jobs: {len(user.job_handler)}")
