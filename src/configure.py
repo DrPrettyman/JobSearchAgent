@@ -6,7 +6,7 @@ from InquirerPy.validator import PathValidator
 
 from utils import run_claude, extract_url_slug, summarize_source_documents, summarize_online_presence
 from online_presence import fetch_online_presence
-from data_handlers import User, SEARCH_QUERIES
+from data_handlers import User
 
 
 def configure_name(user: User):
@@ -477,7 +477,7 @@ Return ONLY a JSON array of 30 query strings, no other text:
             print("Invalid response format from Claude.")
             return
 
-        SEARCH_QUERIES.save(queries)
+        user.query_handler.save(queries)
         print(f"Created {len(queries)} search queries.")
 
     except json.JSONDecodeError:
