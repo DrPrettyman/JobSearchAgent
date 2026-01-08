@@ -6,25 +6,25 @@ from InquirerPy.validator import PathValidator
 
 from utils import run_claude, extract_url_slug, summarize_source_documents, summarize_online_presence
 from online_presence import fetch_online_presence
-from data_handlers import USER, SEARCH_QUERIES
+from data_handlers import User, SEARCH_QUERIES
 
 
-def configure_name():
+def configure_name(user: User):
     """Configure user's name."""
-    USER.name = inquirer.text(
+    user.name = inquirer.text(
         message="Your name:",
-        default=USER.name,
+        default=user.name,
     ).execute()
-    USER.save()
+    user.save()
 
 
-def configure_email():
+def configure_email(user: User):
     """Configure user's email."""
-    USER.email = inquirer.text(
+    user.email = inquirer.text(
         message="Your email:",
-        default=USER.email,
+        default=user.email,
     ).execute()
-    USER.save()
+    user.save()
 
 
 # Ordered by precedence (most prestigious first)
@@ -47,9 +47,9 @@ CREDENTIAL_OPTIONS = [
 ]
 
 
-def configure_credentials():
+def configure_credentials(user: User):
     """Configure user's credentials/titles."""
-    current = USER.credentials
+    current = user.credentials
 
     choices = [
         {"name": cred, "value": cred, "enabled": cred in current}
@@ -61,13 +61,13 @@ def configure_credentials():
         choices=choices,
     ).execute()
 
-    USER.credentials = selected
-    USER.save()
+    user.credentials = selected
+    user.save()
 
 
-def configure_linkedin():
+def configure_linkedin(user: User):
     """Configure LinkedIn profile."""
-    current = USER.linkedin_extension
+    current = user.linkedin_extension
     display = f"(current: {current})" if current else ""
 
     value = inquirer.text(
@@ -76,16 +76,16 @@ def configure_linkedin():
     ).execute()
 
     if value:
-        USER.linkedin_extension = extract_url_slug(value)
+        user.linkedin_extension = extract_url_slug(value)
     else:
-        USER.linkedin_extension = ""
-    USER.save()
+        user.linkedin_extension = ""
+    user.save()
 
 
-def configure_websites():
+def configure_websites(user: User):
     """Configure personal websites/portfolios."""
     while True:
-        sites = USER.websites
+        sites = user.websites
         if sites:
             print("\nCurrent websites:")
             for i, s in enumerate(sites, 1):
@@ -108,36 +108,36 @@ def configure_websites():
         elif action == "add":
             url = inquirer.text(message="Enter website URL:").execute()
             if url:
-                USER.add_website(url)
+                user.add_website(url)
         elif action == "remove":
             to_remove = inquirer.select(
                 message="Select website to remove:",
                 choices=[{"name": s, "value": s} for s in sites] + [{"name": "Cancel", "value": None}],
             ).execute()
             if to_remove:
-                USER.remove_website(to_remove)
+                user.remove_website(to_remove)
 
     # Check for LinkedIn URLs in websites
-    linkedin_urls = [s for s in USER.websites if "linkedin.com" in s.lower()]
+    linkedin_urls = [s for s in user.websites if "linkedin.com" in s.lower()]
     for url in linkedin_urls:
         parsed = extract_url_slug(url)
-        if USER.linkedin_extension:
+        if user.linkedin_extension:
             # Already have LinkedIn configured, remove duplicate
-            USER.remove_website(url)
-            print(f"Removed LinkedIn URL from websites (already configured)")
+            user.remove_website(url)
+            print("Removed LinkedIn URL from websites (already configured)")
         else:
             # No LinkedIn configured, move it there
-            USER.linkedin_extension = parsed
-            USER.remove_website(url)
+            user.linkedin_extension = parsed
+            user.remove_website(url)
             print(f"Moved LinkedIn URL to dedicated field: {parsed}")
 
-    USER.save()
+    user.save()
 
 
-def configure_source_documents():
+def configure_source_documents(user: User):
     """Configure source document paths."""
     while True:
-        paths = USER._source_document_paths
+        paths = user._source_document_paths
         if paths:
             print("\nCurrent paths:")
             for i, p in enumerate(paths, 1):
@@ -158,7 +158,7 @@ def configure_source_documents():
         if action == "done":
             break
         elif action == "clear":
-            USER._source_document_paths.clear()
+            user._source_document_paths.clear()
             print("Cleared all paths.")
         elif action == "remove":
             if not paths:
@@ -169,7 +169,7 @@ def configure_source_documents():
                 choices=[{"name": p, "value": p} for p in paths] + [{"name": "Cancel", "value": None}],
             ).execute()
             if to_remove:
-                USER.remove_source_document_path(to_remove)
+                user.remove_source_document_path(to_remove)
                 print(f"Removed: {to_remove}")
         elif action == "add":
             add_type = inquirer.select(
@@ -193,38 +193,38 @@ def configure_source_documents():
                 ).execute()
                 selected_path = str(Path(selected_path).resolve())
 
-            USER.add_source_document_path(selected_path)
+            user.add_source_document_path(selected_path)
             print(f"Added: {selected_path}")
 
-    USER.save()
-    USER.update_combined_docs()
+    user.save()
+    user.update_combined_docs()
 
-    if USER.combined_source_documents:
+    if user.combined_source_documents:
         print("Generating summary of source documents...")
-        summary = summarize_source_documents(USER.combined_source_documents)
+        summary = summarize_source_documents(user.combined_source_documents)
         if summary:
-            USER.source_document_summary = summary
-            USER.save()
+            user.source_document_summary = summary
+            user.save()
             print("Summary generated.")
         else:
             print("Could not generate summary.")
 
 
-def refresh_source_documents():
+def refresh_source_documents(user: User):
     """Re-read source documents and regenerate summary."""
-    if not USER.source_document_paths:
+    if not user.source_document_paths:
         print("No source documents configured.")
         return
 
     print("Re-reading source documents...")
-    USER.update_combined_docs()
+    user.update_combined_docs()
 
-    if USER.combined_source_documents:
+    if user.combined_source_documents:
         print("Generating summary...")
-        summary = summarize_source_documents(USER.combined_source_documents)
+        summary = summarize_source_documents(user.combined_source_documents)
         if summary:
-            USER.source_document_summary = summary
-            USER.save()
+            user.source_document_summary = summary
+            user.save()
             print("Summary updated.")
         else:
             print("Could not generate summary.")
@@ -232,12 +232,12 @@ def refresh_source_documents():
         print("No content found in source documents.")
 
 
-def refresh_online_presence():
+def refresh_online_presence(user: User):
     """Fetch online presence and regenerate summary."""
     urls = []
-    if USER.linkedin_url:
-        urls.append(USER.linkedin_url)
-    urls.extend(USER.websites)
+    if user.linkedin_url:
+        urls.append(user.linkedin_url)
+    urls.extend(user.websites)
 
     if not urls:
         print("No online presence URLs configured.")
@@ -246,26 +246,26 @@ def refresh_online_presence():
     print("Fetching online presence...")
     results = fetch_online_presence(urls)
 
-    USER.clear_online_presence()
+    user.clear_online_presence()
     for entry in results:
-        USER.add_online_presence(entry["site"], entry["content"], entry["time_fetched"])
+        user.add_online_presence(entry["site"], entry["content"], entry["time_fetched"])
 
-    if USER.online_presence:
+    if user.online_presence:
         print("Generating summary...")
-        summary = summarize_online_presence(USER.online_presence)
+        summary = summarize_online_presence(user.online_presence)
         if summary:
-            USER.online_presence_summary = summary
+            user.online_presence_summary = summary
         else:
             print("Could not generate summary.")
 
-    USER.save()
+    user.save()
     print(f"Fetched {len(results)} profiles.")
 
 
-def configure_job_titles():
+def configure_job_titles(user: User):
     """Configure desired job titles."""
     while True:
-        titles = USER.desired_job_titles
+        titles = user.desired_job_titles
         print(f"\nCurrent job titles: {titles}")
 
         choices = [{"name": "Add a title", "value": "add"}]
@@ -283,22 +283,22 @@ def configure_job_titles():
         elif action == "add":
             new_title = inquirer.text(message="Enter job title:").execute()
             if new_title:
-                USER.add_desired_job_title(new_title)
+                user.add_desired_job_title(new_title)
         elif action == "remove":
             to_remove = inquirer.select(
                 message="Select title to remove:",
                 choices=[{"name": t, "value": t} for t in titles] + [{"name": "Cancel", "value": None}],
             ).execute()
             if to_remove:
-                USER.remove_desired_job_title(to_remove)
+                user.remove_desired_job_title(to_remove)
 
-    USER.save()
+    user.save()
 
 
-def configure_job_locations():
+def configure_job_locations(user: User):
     """Configure desired job locations."""
     while True:
-        locations = USER.desired_job_locations
+        locations = user.desired_job_locations
         print(f"\nCurrent job locations: {locations}")
 
         choices = [{"name": "Add a location", "value": "add"}]
@@ -316,28 +316,28 @@ def configure_job_locations():
         elif action == "add":
             new_loc = inquirer.text(message="Enter job location:").execute()
             if new_loc:
-                USER.add_desired_job_location(new_loc)
+                user.add_desired_job_location(new_loc)
         elif action == "remove":
             to_remove = inquirer.select(
                 message="Select location to remove:",
                 choices=[{"name": loc, "value": loc} for loc in locations] + [{"name": "Cancel", "value": None}],
             ).execute()
             if to_remove:
-                USER.remove_desired_job_location(to_remove)
+                user.remove_desired_job_location(to_remove)
 
-    USER.save()
+    user.save()
 
 
-def suggest_from_documents():
+def suggest_from_documents(user: User):
     """Use Claude to suggest job titles and locations from source documents."""
-    if not USER.source_document_paths:
+    if not user.source_document_paths:
         print("No source documents configured. Add documents first.")
         return
 
-    combined_docs = USER._combined_source_documents
+    combined_docs = user._combined_source_documents
     if not combined_docs:
-        USER.update_create_combined_docs()
-        combined_docs = USER._combined_source_documents
+        user.update_combined_docs()
+        combined_docs = user._combined_source_documents
 
     if not combined_docs:
         print("Could not read any source documents.")
@@ -379,7 +379,7 @@ Documents:
                 choices=[{"name": t, "value": t, "enabled": True} for t in suggested_titles],
             ).execute()
             for title in selected_titles:
-                USER.add_desired_job_title(title)
+                user.add_desired_job_title(title)
 
         if suggested_locations:
             selected_locations = inquirer.checkbox(
@@ -387,61 +387,61 @@ Documents:
                 choices=[{"name": loc, "value": loc, "enabled": True} for loc in suggested_locations],
             ).execute()
             for loc in selected_locations:
-                USER.add_desired_job_location(loc)
+                user.add_desired_job_location(loc)
 
-        USER.save()
+        user.save()
 
     except json.JSONDecodeError:
         print("Could not parse Claude's response.")
 
 
-def configure_all():
+def configure_all(user: User):
     """Run full configuration flow."""
     print("=== Configure User Info ===\n")
-    configure_name()
-    configure_email()
-    configure_credentials()
-    configure_linkedin()
-    configure_websites()
+    configure_name(user)
+    configure_email(user)
+    configure_credentials(user)
+    configure_linkedin(user)
+    configure_websites(user)
 
     print("\n=== Configure Source Documents ===")
-    configure_source_documents()
+    configure_source_documents(user)
 
     print("\n=== Configure Job Preferences ===")
-    if USER.source_document_paths:
+    if user.source_document_paths:
         use_ai = inquirer.confirm(
             message="Would you like AI to suggest job titles and locations from your documents?",
             default=True
         ).execute()
         if use_ai:
-            suggest_from_documents()
+            suggest_from_documents(user)
 
-    configure_job_titles()
-    configure_job_locations()
+    configure_job_titles(user)
+    configure_job_locations(user)
 
     print("\nConfiguration complete.")
 
 
-def create_search_queries():
+def create_search_queries(user: User):
     """Create search queries from the user's information."""
 
-    if not USER.desired_job_titles:
+    if not user.desired_job_titles:
         print("No job titles configured. Run configure_job_titles() first.")
         return
 
-    if not USER.desired_job_locations:
+    if not user.desired_job_locations:
         print("No job locations configured. Run configure_job_locations() first.")
         return
 
     print("Generating search queries...")
 
     # Truncate docs to avoid token limits
-    docs_summary = USER._combined_source_documents[:4000] if USER._combined_source_documents else ""
+    docs_summary = user._combined_source_documents[:4000] if user._combined_source_documents else ""
 
     prompt = f"""Based on this job seeker's profile, create 30 effective job search queries.
 
-Job titles of interest: {USER.desired_job_titles}
-Preferred locations: {USER.desired_job_locations}
+Job titles of interest: {user.desired_job_titles}
+Preferred locations: {user.desired_job_locations}
 
 Background summary:
 {docs_summary}
@@ -483,8 +483,4 @@ Return ONLY a JSON array of 30 query strings, no other text:
     except json.JSONDecodeError:
         print("Could not parse Claude's response as JSON.")
 
-
-if __name__ == "__main__":
-    configure_all()
-    create_search_queries()
     
