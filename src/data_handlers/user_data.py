@@ -7,19 +7,19 @@ from .utils import combine_documents
 
 
 class User:
-    def __init__(self, 
-                 file_path: Path, 
-                 job_handler: Jobs, 
-                 query_handler: SearchQueries,
-                 is_new_user: bool = True):
+    def __init__(self, directory_path: Path):
         
-        self._file_path = file_path
-        self.job_handler = job_handler
-        self.query_handler = query_handler
-        self.is_new_user = is_new_user
+        self.directory_path = directory_path
+        
+        self._file_path = directory_path / "user_info.json"
+        self.job_handler = Jobs(file_path=directory_path / "jobs.json")
+        self.query_handler = SearchQueries(
+            file_path=directory_path / "search_queries.csv", 
+            results_path=directory_path / "search_query_results.csv"
+            )
 
-        if not file_path.exists():
-            with open(file_path, "w") as f:
+        if not self._file_path.exists():
+            with open(self._file_path, "w") as f:
                 json.dump(
                     {
                         "name": "",
@@ -34,7 +34,7 @@ class User:
                     f
                 )
 
-        with open(file_path, "r") as f:
+        with open(self._file_path, "r") as f:
             user_info = json.load(f)
 
         self._name = user_info.get("name", "")
