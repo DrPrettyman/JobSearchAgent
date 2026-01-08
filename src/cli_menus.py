@@ -3,7 +3,7 @@
 from InquirerPy import inquirer
 
 from data_handlers import User
-from cli_utils import Colors, print_header, print_section, print_field, print_list
+from cli_utils import Colors, print_header, print_section, print_field, print_list, hyperlink
 from configure import (
     configure_name,
     configure_email,
@@ -167,6 +167,176 @@ def search_menu(user: User):
         print()
 
 
+def display_job_card(job, index: int = None):
+    """Display a single job as a beautiful card."""
+    # Status indicator
+    if job.applied:
+        status = f"{Colors.GREEN}✓ Applied{Colors.RESET}"
+    else:
+        status = f"{Colors.YELLOW}○ Not applied{Colors.RESET}"
+
+    # Index prefix if provided
+    prefix = f"{Colors.DIM}[{index}]{Colors.RESET} " if index is not None else ""
+
+    # Company and title line
+    print(f"  {prefix}{Colors.BOLD}{job.company}{Colors.RESET}")
+    print(f"      {Colors.CYAN}{job.title}{Colors.RESET}  {status}")
+
+    # Location and date
+    location = job.location or "Location not specified"
+    date = job.date_found[:10] if job.date_found else "Unknown date"
+    print(f"      {Colors.DIM}📍 {location}  •  📅 {date}{Colors.RESET}")
+
+    # Clickable apply link
+    if job.link:
+        link_text = hyperlink(job.link, "Apply →")
+        print(f"      {Colors.BLUE}{link_text}{Colors.RESET}")
+
+    print()
+
+
+def display_job_detail(job):
+    """Display detailed view of a single job."""
+    print_header(f"{job.company}")
+
+    # Status badge
+    if job.applied:
+        print(f"  {Colors.GREEN}━━━ ✓ APPLIED ━━━{Colors.RESET}\n")
+    else:
+        print(f"  {Colors.YELLOW}━━━ ○ NOT YET APPLIED ━━━{Colors.RESET}\n")
+
+    # Main info
+    print_section("Position Details")
+    print_field("Title", job.title)
+    print_field("Location", job.location)
+    print_field("Found", job.date_found[:10] if job.date_found else "")
+    if job.addressee:
+        print_field("Hiring Manager", job.addressee)
+    print()
+
+    # Apply link (prominent)
+    if job.link:
+        print_section("Apply")
+        link = hyperlink(job.link, job.link)
+        print(f"  {Colors.BLUE}{Colors.BOLD}{link}{Colors.RESET}")
+        print()
+
+    # Description
+    if job.description:
+        print_section("Summary")
+        # Word wrap the description
+        words = job.description.split()
+        line = "  "
+        for word in words:
+            if len(line) + len(word) > 78:
+                print(line)
+                line = "  "
+            line += word + " "
+        if line.strip():
+            print(line)
+        print()
+
+    # Full description (truncated preview)
+    if job.full_description:
+        print_section("Full Description")
+        preview = job.full_description[:500]
+        if len(job.full_description) > 500:
+            preview += "..."
+        # Word wrap
+        words = preview.split()
+        line = "  "
+        for word in words:
+            if len(line) + len(word) > 78:
+                print(line)
+                line = "  "
+            line += word + " "
+        if line.strip():
+            print(line)
+        print(f"\n  {Colors.DIM}({len(job.full_description)} characters total){Colors.RESET}")
+        print()
+
+
+def jobs_menu(user: User):
+    """View and manage found jobs."""
+    while True:
+        jobs = list(user.job_handler)
+
+        if not jobs:
+            print_header("Jobs")
+            print(f"  {Colors.DIM}No jobs found yet.{Colors.RESET}")
+            print(f"  {Colors.DIM}Use 'Search for Jobs' to find opportunities.{Colors.RESET}\n")
+            return
+
+        # Stats
+        applied_count = sum(1 for j in jobs if j.applied)
+        pending_count = len(jobs) - applied_count
+
+        print_header("Jobs")
+        print(f"  {Colors.GREEN}✓ {applied_count} applied{Colors.RESET}  •  {Colors.YELLOW}○ {pending_count} pending{Colors.RESET}  •  {Colors.DIM}{len(jobs)} total{Colors.RESET}\n")
+
+        # Display jobs as cards
+        for i, job in enumerate(jobs, 1):
+            display_job_card(job, i)
+
+        # Build choices
+        job_choices = [
+            {"name": f"{j.company} - {j.title}", "value": j.id}
+            for j in jobs
+        ]
+        job_choices.append({"name": "─" * 30, "value": None, "disabled": ""})
+        job_choices.append({"name": "← Back to main menu", "value": "back"})
+
+        action = inquirer.select(
+            message="Select a job to view details:",
+            choices=job_choices,
+        ).execute()
+
+        if action == "back" or action is None:
+            break
+
+        # Show job detail
+        job = user.job_handler.get(action)
+        if job:
+            job_detail_menu(user, job)
+
+
+def job_detail_menu(user: User, job):
+    """View and manage a single job."""
+    while True:
+        display_job_detail(job)
+
+        choices = []
+        if not job.applied:
+            choices.append({"name": "✓ Mark as applied", "value": "apply"})
+        else:
+            choices.append({"name": "○ Mark as not applied", "value": "unapply"})
+
+        if job.link:
+            choices.append({"name": "🔗 Open job link", "value": "open"})
+
+        choices.append({"name": "← Back to jobs list", "value": "back"})
+
+        action = inquirer.select(
+            message="What would you like to do?",
+            choices=choices,
+        ).execute()
+
+        if action == "back":
+            break
+        elif action == "apply":
+            job.applied = True
+            user.job_handler.save()
+            print(f"\n{Colors.GREEN}✓ Marked as applied!{Colors.RESET}\n")
+        elif action == "unapply":
+            job.applied = False
+            user.job_handler.save()
+            print(f"\n{Colors.YELLOW}○ Marked as not applied.{Colors.RESET}\n")
+        elif action == "open":
+            import webbrowser
+            webbrowser.open(job.link)
+            print(f"\n{Colors.DIM}Opening in browser...{Colors.RESET}\n")
+
+
 def main_menu(user: User):
     """Main application menu."""
     while True:
@@ -192,7 +362,7 @@ def main_menu(user: User):
         elif action == "search":
             search_menu(user)
         elif action == "jobs":
-            print(f"\n{Colors.DIM}Jobs view coming soon...{Colors.RESET}\n")
+            jobs_menu(user)
         elif action == "cover":
             print(f"\n{Colors.DIM}Cover letter generation coming soon...{Colors.RESET}\n")
         elif action == "settings":

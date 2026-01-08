@@ -1,6 +1,13 @@
 """CLI formatting utilities."""
 
 
+def hyperlink(url: str, text: str = None) -> str:
+    """Create a clickable terminal hyperlink using OSC 8 escape codes."""
+    if text is None:
+        text = url
+    return f"\033]8;;{url}\033\\{text}\033]8;;\033\\"
+
+
 class Colors:
     HEADER = "\033[95m"
     BLUE = "\033[94m"
