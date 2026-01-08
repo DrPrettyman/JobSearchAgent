@@ -1,12 +1,20 @@
 from pathlib import Path
 import json
 import glob as globlib
-from .utils import DATA_DIR, combine_documents
+from .jobs_data import Jobs
+from .query_data import SearchQueries
+from .utils import combine_documents
 
 
 class User:
-    def __init__(self, file_path: Path):
+    def __init__(self, 
+                 file_path: Path, 
+                 job_handler: Jobs, 
+                 query_handler: SearchQueries):
+        
         self._file_path = file_path
+        self.job_handler = job_handler
+        self.query_handler = query_handler
 
         if not file_path.exists():
             with open(file_path, "w") as f:
@@ -200,6 +208,3 @@ class User:
        
     def update_combined_docs(self):
         self._combined_source_documents = self.create_combined_docs()
-
-
-USER = User(DATA_DIR / "user_info.json")

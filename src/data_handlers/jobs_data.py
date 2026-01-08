@@ -1,7 +1,7 @@
 from pathlib import Path
 import json
 import re
-from .utils import DATA_DIR, datetime_iso
+from .utils import datetime_iso
 
 
 class Job:
@@ -143,5 +143,3 @@ class Jobs:
         """Get a job by ID."""
         return self._jobs.get(_id)
 
-
-JOBS = Jobs(file_path=DATA_DIR / "jobs.json")

@@ -1,6 +1,6 @@
 from pathlib import Path
 import csv
-from .utils import DATA_DIR, datetime_iso
+from .utils import datetime_iso
 
 
 class SearchQuery:
@@ -52,6 +52,3 @@ class SearchQueries:
         with open(self._results_path, 'a') as f:
             writer = csv.writer(f)
             writer.writerow([_id, datetime_iso(), potential_leads])
-            
-            
-SEARCH_QUERIES = SearchQueries(DATA_DIR / "search_queries.csv", DATA_DIR / "search_query_results.csv")

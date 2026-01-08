@@ -6,13 +6,6 @@ import glob as globlib
 import datetime
 
 
-DATA_DIR = Path.home() / ".JobSearch"
-if not DATA_DIR.exists():
-    IS_NEW_USER = True
-    DATA_DIR.mkdir()
-else:
-    IS_NEW_USER = False
-
 def datetime_iso() -> str:
     return datetime.datetime.now(tz=datetime.timezone.utc).isoformat()
     
