@@ -13,10 +13,7 @@ else:
     IS_NEW_USER = False
 
 
-USER = User(
-    directory_path=DATA_DIR,
-    is_new_user=IS_NEW_USER
-    )
+USER = User(directory_path=DATA_DIR)
 
 def main():
     if IS_NEW_USER:
