@@ -4,7 +4,8 @@ from pathlib import Path
 from InquirerPy import inquirer
 from InquirerPy.validator import PathValidator
 
-from utils import run_claude, extract_url_slug
+from utils import run_claude, extract_url_slug, summarize_source_documents, summarize_online_presence
+from online_presence import fetch_online_presence
 from data_handlers import USER, SEARCH_QUERIES
 
 
@@ -197,6 +198,68 @@ def configure_source_documents():
 
     USER.save()
     USER.update_combined_docs()
+
+    if USER.combined_source_documents:
+        print("Generating summary of source documents...")
+        summary = summarize_source_documents(USER.combined_source_documents)
+        if summary:
+            USER.source_document_summary = summary
+            USER.save()
+            print("Summary generated.")
+        else:
+            print("Could not generate summary.")
+
+
+def refresh_source_documents():
+    """Re-read source documents and regenerate summary."""
+    if not USER.source_document_paths:
+        print("No source documents configured.")
+        return
+
+    print("Re-reading source documents...")
+    USER.update_combined_docs()
+
+    if USER.combined_source_documents:
+        print("Generating summary...")
+        summary = summarize_source_documents(USER.combined_source_documents)
+        if summary:
+            USER.source_document_summary = summary
+            USER.save()
+            print("Summary updated.")
+        else:
+            print("Could not generate summary.")
+    else:
+        print("No content found in source documents.")
+
+
+def refresh_online_presence():
+    """Fetch online presence and regenerate summary."""
+    urls = []
+    if USER.linkedin_url:
+        urls.append(USER.linkedin_url)
+    urls.extend(USER.websites)
+
+    if not urls:
+        print("No online presence URLs configured.")
+        return
+
+    print("Fetching online presence...")
+    results = fetch_online_presence(urls)
+
+    USER.clear_online_presence()
+    for entry in results:
+        USER.add_online_presence(entry["site"], entry["content"], entry["time_fetched"])
+
+    if USER.online_presence:
+        print("Generating summary...")
+        summary = summarize_online_presence(USER.online_presence)
+        if summary:
+            USER.online_presence_summary = summary
+        else:
+            print("Could not generate summary.")
+
+    USER.save()
+    print(f"Fetched {len(results)} profiles.")
 
 
 def configure_job_titles():
