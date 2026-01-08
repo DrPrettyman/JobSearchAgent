@@ -36,6 +36,8 @@ class User:
         self._desired_job_locations = user_info.get("desired_job_locations", [])
         self._source_document_paths = user_info.get("source_document_paths", [])
         self._online_presence = user_info.get("online_presence", [])
+        self._source_document_summary = user_info.get("source_document_summary", "")
+        self._online_presence_summary = user_info.get("online_presence_summary", "")
         self._combined_source_documents = self.create_combined_docs()
 
     def save(self):
@@ -50,7 +52,9 @@ class User:
                     "source_document_paths": self._source_document_paths,
                     "desired_job_titles": self._desired_job_titles,
                     "desired_job_locations": self._desired_job_locations,
-                    "online_presence": self._online_presence
+                    "online_presence": self._online_presence,
+                    "source_document_summary": self._source_document_summary,
+                    "online_presence_summary": self._online_presence_summary
                 },
                 f,
                 indent=4
@@ -125,6 +129,22 @@ class User:
     @property
     def online_presence(self) -> list[dict]:
         return self._online_presence
+
+    @property
+    def source_document_summary(self) -> str:
+        return self._source_document_summary
+
+    @source_document_summary.setter
+    def source_document_summary(self, value: str):
+        self._source_document_summary = value
+
+    @property
+    def online_presence_summary(self) -> str:
+        return self._online_presence_summary
+
+    @online_presence_summary.setter
+    def online_presence_summary(self, value: str):
+        self._online_presence_summary = value
 
     def add_online_presence(self, site: str, content: str, time_fetched: str):
         """Add or update online presence entry for a site."""
