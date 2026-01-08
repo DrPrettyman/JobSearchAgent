@@ -2,7 +2,7 @@
 
 from InquirerPy import inquirer
 
-from data_handlers import User, USER, IS_NEW_USER
+from data_handlers import User, USER
 from cli_utils import Colors, print_header, print_section, print_field, print_list
 from configure import (
     configure_name,
@@ -71,10 +71,10 @@ def display_user_info(user: User, skip: bool = False):
         print()
 
 
-def user_info_menu(skip_first_display: bool = False):
+def user_info_menu(user: User, skip_first_display: bool = False):
     """Show user info and provide edit options."""
     while True:
-        display_user_info(USER, skip=skip_first_display)
+        display_user_info(user, skip=skip_first_display)
         skip_first_display = False
 
         action = inquirer.select(
@@ -97,28 +97,28 @@ def user_info_menu(skip_first_display: bool = False):
         if action == "back":
             break
         elif action == "name":
-            configure_name(USER)
+            configure_name(user)
         elif action == "email":
-            configure_email(USER)
+            configure_email(user)
         elif action == "credentials":
-            configure_credentials(USER)
+            configure_credentials(user)
         elif action == "linkedin":
-            configure_linkedin(USER)
+            configure_linkedin(user)
         elif action == "websites":
-            configure_websites(USER)
+            configure_websites(user)
         elif action == "titles":
-            configure_job_titles(USER)
+            configure_job_titles(user)
         elif action == "locations":
-            configure_job_locations(USER)
+            configure_job_locations(user)
         elif action == "documents":
-            configure_source_documents(USER)
+            configure_source_documents(user)
         elif action == "refresh_docs":
-            refresh_source_documents(USER)
+            refresh_source_documents(user)
         elif action == "refresh_online":
-            refresh_online_presence(USER)
+            refresh_online_presence(user)
 
 
-def main_menu():
+def main_menu(user: User):
     """Main application menu."""
     while True:
         print_header("JobSearch")
@@ -139,7 +139,7 @@ def main_menu():
             print(f"\n{Colors.DIM}Goodbye!{Colors.RESET}\n")
             break
         elif action == "user":
-            user_info_menu()
+            user_info_menu(user)
         elif action == "search":
             print(f"\n{Colors.DIM}Search functionality coming soon...{Colors.RESET}\n")
         elif action == "jobs":
@@ -151,11 +151,11 @@ def main_menu():
 
 
 def main():
-    if IS_NEW_USER:
+    if USER.is_new_user:
         print_header("Welcome to JobSearch!")
         print(f"{Colors.DIM}Let's set up your profile to get started.{Colors.RESET}\n")
-        user_info_menu()
-    main_menu()
+        user_info_menu(USER, skip_first_display=True)
+    main_menu(USER)
 
 
 if __name__ == "__main__":
