@@ -76,3 +76,70 @@ def scrape(url):
     lines = [l.strip() for l in html_clean.split('\n') if l.strip()]
 
     return '\n'.join(lines)
+
+
+def summarize_source_documents(combined_docs: str) -> str:
+    """Generate a short summary of source documents using Claude.
+
+    Args:
+        combined_docs: Combined text from all source documents
+
+    Returns:
+        Short summary string, or empty string on failure
+    """
+    if not combined_docs or len(combined_docs) < 50:
+        return ""
+
+    # Truncate to avoid token limits
+    docs_truncated = combined_docs[:12000]
+
+    prompt = f"""Summarize this person's professional background in 2-3 sentences.
+Focus on: key skills, experience level, and main areas of expertise.
+Be concise and factual.
+
+Documents:
+{docs_truncated}"""
+
+    success, response = run_claude(prompt, timeout=60)
+    if not success:
+        return ""
+
+    return response.strip()
+
+
+def summarize_online_presence(online_presence: list[dict]) -> str:
+    """Generate a short summary of online presence using Claude.
+
+    Args:
+        online_presence: List of dicts with site, time_fetched, content
+
+    Returns:
+        Short summary string, or empty string on failure
+    """
+    if not online_presence:
+        return ""
+
+    # Combine all content
+    combined = "\n\n".join([
+        f"--- {entry.get('site', 'Unknown')} ---\n{entry.get('content', '')}"
+        for entry in online_presence
+    ])
+
+    if len(combined) < 50:
+        return ""
+
+    # Truncate to avoid token limits
+    combined_truncated = combined[:12000]
+
+    prompt = f"""Summarize this person's online presence in 2-3 sentences.
+Focus on: notable projects, public contributions, and professional highlights.
+Be concise and factual.
+
+Online profiles:
+{combined_truncated}"""
+
+    success, response = run_claude(prompt, timeout=60)
+    if not success:
+        return ""
+
+    return response.strip()
