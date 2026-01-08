@@ -157,7 +157,13 @@ def extract_text_from_json(path: str) -> str:
 
 
 def extract_text_from_html(path: str) -> str:
-    """Extract text from an HTML file."""
+    """Extract text from an HTML file using BeautifulSoup."""
+    try:
+        from bs4 import BeautifulSoup
+    except ImportError:
+        print(f"Warning: beautifulsoup4 not installed. Cannot read {path}")
+        return ""
+
     try:
         with open(path, "r", encoding="utf-8") as f:
             html = f.read()
@@ -172,27 +178,13 @@ def extract_text_from_html(path: str) -> str:
         print(f"Warning: Could not read HTML {path}: {e}")
         return ""
 
-    # Remove script and style tags
-    html_clean = re.sub(r'<script[^>]*>.*?</script>', '', html, flags=re.DOTALL)
-    html_clean = re.sub(r'<style[^>]*>.*?</style>', '', html_clean, flags=re.DOTALL)
-    # Remove HTML comments
-    html_clean = re.sub(r'<!--.*?-->', '', html_clean, flags=re.DOTALL)
-    # Remove HTML tags, replacing block elements with newlines
-    html_clean = re.sub(r'</(p|div|br|h[1-6]|li|tr)>', '\n', html_clean, flags=re.IGNORECASE)
-    html_clean = re.sub(r'<[^>]+>', ' ', html_clean)
-    # Decode common HTML entities
-    html_clean = html_clean.replace('&amp;', '&')
-    html_clean = html_clean.replace('&lt;', '<')
-    html_clean = html_clean.replace('&gt;', '>')
-    html_clean = html_clean.replace('&quot;', '"')
-    html_clean = html_clean.replace('&#39;', "'")
-    html_clean = html_clean.replace('&nbsp;', ' ')
-    # Clean up whitespace
-    html_clean = re.sub(r'[ \t]+', ' ', html_clean)
-    html_clean = re.sub(r'\n[ \t]+', '\n', html_clean)
-    html_clean = re.sub(r'\n{3,}', '\n\n', html_clean)
+    soup = BeautifulSoup(html, "lxml")
 
-    return html_clean.strip()
+    # Remove script and style elements
+    for element in soup(["script", "style"]):
+        element.decompose()
+
+    return soup.get_text(separator="\n")
 
 
 def extract_text_from_file(path: str) -> str:
@@ -301,6 +293,8 @@ def run_claude(prompt: str, timeout: int = 120, tools: list[str] = None) -> tupl
     
 def scrape(url):
     """Fetch and extract text content from a job posting URL."""
+    from bs4 import BeautifulSoup
+
     headers = {
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     }
@@ -313,29 +307,19 @@ def scrape(url):
     except Exception as e:
         raise RuntimeError(f"Error fetching URL: {e}")
 
-    # Remove script and style tags
-    html_clean = re.sub(r'<script[^>]*>.*?</script>', '', html, flags=re.DOTALL)
-    html_clean = re.sub(r'<style[^>]*>.*?</style>', '', html_clean, flags=re.DOTALL)
+    soup = BeautifulSoup(html, "lxml")
 
-    # Remove HTML tags, replacing with newlines
-    html_clean = re.sub(r'<[^>]+>', '\n', html_clean)
+    # Remove script and style elements
+    for element in soup(["script", "style"]):
+        element.decompose()
+
+    text = soup.get_text(separator="\n")
 
     # Clean up whitespace
-    html_clean = re.sub(r'\n+', '\n', html_clean)
-    html_clean = re.sub(r'[ \t]+', ' ', html_clean)
+    text = re.sub(r'[ \t]+', ' ', text)
+    text = re.sub(r'\n{3,}', '\n\n', text)
 
-    # Decode HTML entities
-    html_clean = html_clean.replace('&amp;', '&')
-    html_clean = html_clean.replace('&lt;', '<')
-    html_clean = html_clean.replace('&gt;', '>')
-    html_clean = html_clean.replace('&quot;', '"')
-    html_clean = html_clean.replace('&#39;', "'")
-    html_clean = html_clean.replace('&nbsp;', ' ')
-
-    # Extract lines and clean
-    lines = [l.strip() for l in html_clean.split('\n') if l.strip()]
-
-    return '\n'.join(lines)
+    return text.strip()
 
 
 def summarize_source_documents(combined_docs: str) -> str:
