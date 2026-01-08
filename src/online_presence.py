@@ -184,29 +184,26 @@ Website content:
     return response
 
 
-def fetch_all_online_presence(user) -> None:
-    """Fetch online presence from all configured sources and store in user data.
+def fetch_online_presence(urls: list[str]) -> list[dict]:
+    """Fetch online presence from a list of URLs.
+
+    Automatically detects LinkedIn, GitHub, or generic websites.
 
     Args:
-        user: User object with linkedin_url and websites properties
+        urls: List of URLs to fetch
+
+    Returns:
+        List of dicts with keys: site, time_fetched, content
     """
-    user.clear_online_presence()
+    results = []
 
-    # Fetch LinkedIn profile
-    if user.linkedin_url:
-        print(f"Fetching LinkedIn profile: {user.linkedin_url}")
-        content = fetch_linkedin_profile(user.linkedin_url)
-        if content:
-            user.add_online_presence(user.linkedin_url, content, datetime_iso())
-            print(f"  Got {len(content)} chars")
-        else:
-            print("  No content extracted")
-
-    # Fetch from websites
-    for url in user.websites:
+    for url in urls:
         url_lower = url.lower()
 
-        if "github.com" in url_lower:
+        if "linkedin.com" in url_lower:
+            print(f"Fetching LinkedIn profile: /in/{extract_url_slug(url)}")
+            content = fetch_linkedin_profile(url)
+        elif "github.com" in url_lower:
             print(f"Fetching GitHub profile: {url}")
             content = fetch_github_profile(url)
         else:
@@ -214,10 +211,13 @@ def fetch_all_online_presence(user) -> None:
             content = fetch_website_content(url)
 
         if content:
-            user.add_online_presence(url, content, datetime_iso())
+            results.append({
+                "site": url,
+                "time_fetched": datetime_iso(),
+                "content": content
+            })
             print(f"  Got {len(content)} chars")
         else:
             print("  No content extracted")
 
-    user.save()
-    print(f"Saved {len(user.online_presence)} online presence entries")
+    return results
