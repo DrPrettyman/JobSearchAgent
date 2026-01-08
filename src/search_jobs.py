@@ -1,7 +1,7 @@
 """Runs a search for jobs on the web."""
 
 import json
-from utils import run_claude, scrape
+from utils import run_claude, scrape, combined_documents_as_string
 from data_handlers import User
 
 
@@ -236,7 +236,9 @@ def search(user: User, max_queries: int = None, fetch_descriptions: bool = True)
 
     # Phase 3: Filter unsuitable jobs
     print(f"\nFiltering unsuitable jobs...")
-    all_jobs = filter_unsuitable(all_jobs, user._combined_source_documents)
+    # Prefer comprehensive summary, fall back to combined docs
+    user_background = user.comprehensive_summary or combined_documents_as_string(user.combined_source_documents)
+    all_jobs = filter_unsuitable(all_jobs, user_background)
     print(f"  {len(all_jobs)} suitable jobs remaining")
 
     if not all_jobs:

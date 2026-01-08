@@ -1,9 +1,7 @@
 from pathlib import Path
 import json
-import glob as globlib
 from .jobs_data import Jobs
 from .query_data import SearchQueries
-from .utils import combine_documents
 
 
 class User:
@@ -48,7 +46,8 @@ class User:
         self._online_presence = user_info.get("online_presence", [])
         self._source_document_summary = user_info.get("source_document_summary", "")
         self._online_presence_summary = user_info.get("online_presence_summary", "")
-        self._combined_source_documents = self.create_combined_docs()
+        self._comprehensive_summary = user_info.get("comprehensive_summary", "")
+        self._combined_source_documents = user_info.get("combined_source_documents", [])
 
     def save(self):
         with open(self._file_path, "w") as f:
@@ -64,7 +63,9 @@ class User:
                     "desired_job_locations": self._desired_job_locations,
                     "online_presence": self._online_presence,
                     "source_document_summary": self._source_document_summary,
-                    "online_presence_summary": self._online_presence_summary
+                    "online_presence_summary": self._online_presence_summary,
+                    "comprehensive_summary": self._comprehensive_summary,
+                    "combined_source_documents": self._combined_source_documents
                 },
                 f,
                 indent=4
@@ -133,8 +134,12 @@ class User:
         return self._desired_job_locations
     
     @property
-    def combined_source_documents(self):
+    def combined_source_documents(self) -> list[dict]:
         return self._combined_source_documents
+
+    @combined_source_documents.setter
+    def combined_source_documents(self, value: list[dict]):
+        self._combined_source_documents = value
 
     @property
     def online_presence(self) -> list[dict]:
@@ -155,6 +160,14 @@ class User:
     @online_presence_summary.setter
     def online_presence_summary(self, value: str):
         self._online_presence_summary = value
+
+    @property
+    def comprehensive_summary(self) -> str:
+        return self._comprehensive_summary
+
+    @comprehensive_summary.setter
+    def comprehensive_summary(self, value: str):
+        self._comprehensive_summary = value
 
     def add_online_presence(self, site: str, content: str, time_fetched: str):
         """Add or update online presence entry for a site."""
@@ -201,12 +214,3 @@ class User:
     def remove_desired_job_location(self, location: str):
         if location in self._desired_job_locations:
             self._desired_job_locations.remove(location)
-            
-    def create_combined_docs(self) -> str:
-        if not self.source_document_paths:
-            print("No source documents configured.")
-            return ""
-        return combine_documents(self.source_document_paths)
-       
-    def update_combined_docs(self):
-        self._combined_source_documents = self.create_combined_docs()

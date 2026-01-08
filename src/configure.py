@@ -4,7 +4,7 @@ from pathlib import Path
 from InquirerPy import inquirer
 from InquirerPy.validator import PathValidator
 
-from utils import run_claude, extract_url_slug, summarize_source_documents, summarize_online_presence
+from utils import run_claude, extract_url_slug, summarize_source_documents, summarize_online_presence, combine_documents, combined_documents_as_string
 from online_presence import fetch_online_presence
 from data_handlers import User
 
@@ -197,11 +197,13 @@ def configure_source_documents(user: User):
             print(f"Added: {selected_path}")
 
     user.save()
-    user.update_combined_docs()
+    if user.source_document_paths:
+        user.combined_source_documents = combine_documents(user.source_document_paths)
+        user.save()
 
     if user.combined_source_documents:
         print("Generating summary of source documents...")
-        summary = summarize_source_documents(user.combined_source_documents)
+        summary = summarize_source_documents(combined_documents_as_string(user.combined_source_documents))
         if summary:
             user.source_document_summary = summary
             user.save()
@@ -217,11 +219,12 @@ def refresh_source_documents(user: User):
         return
 
     print("Re-reading source documents...")
-    user.update_combined_docs()
+    user.combined_source_documents = combine_documents(user.source_document_paths)
+    user.save()
 
     if user.combined_source_documents:
         print("Generating summary...")
-        summary = summarize_source_documents(user.combined_source_documents)
+        summary = summarize_source_documents(combined_documents_as_string(user.combined_source_documents))
         if summary:
             user.source_document_summary = summary
             user.save()
@@ -330,20 +333,14 @@ def configure_job_locations(user: User):
 
 def suggest_from_documents(user: User):
     """Use Claude to suggest job titles and locations from source documents."""
-    if not user.source_document_paths:
-        print("No source documents configured. Add documents first.")
+    # Prefer comprehensive summary, fall back to combined docs
+    user_background = user.comprehensive_summary or combined_documents_as_string(user.combined_source_documents)
+
+    if not user_background:
+        print("No source documents or comprehensive summary available.")
         return
 
-    combined_docs = user._combined_source_documents
-    if not combined_docs:
-        user.update_combined_docs()
-        combined_docs = user._combined_source_documents
-
-    if not combined_docs:
-        print("Could not read any source documents.")
-        return
-
-    print("Analyzing your documents to suggest job titles and locations...")
+    print("Analyzing your background to suggest job titles and locations...")
 
     prompt = f"""Analyze the following CV/resume documents and suggest:
 1. A list of 5-10 job titles this person would be suitable for
@@ -352,8 +349,8 @@ def suggest_from_documents(user: User):
 Respond ONLY with valid JSON in this exact format, no other text:
 {{"job_titles": ["Title 1", "Title 2"], "job_locations": ["Location 1", "Location 2"]}}
 
-Documents:
-{combined_docs}"""
+Background:
+{user_background}"""
 
     success, response = run_claude(prompt, timeout=180)
 
@@ -393,6 +390,88 @@ Documents:
 
     except json.JSONDecodeError:
         print("Could not parse Claude's response.")
+
+
+def generate_comprehensive_summary(user: User):
+    """Generate a comprehensive summary combining all user information.
+
+    This creates a detailed summary including skills, academic background,
+    work experience, dates, and other notes. Useful for feeding to Claude
+    in contexts where we need complete user information.
+    """
+    # Gather all available information
+    source_docs = combined_documents_as_string(user.combined_source_documents)
+
+    # Compile online presence content
+    online_content = ""
+    if user.online_presence:
+        online_parts = []
+        for entry in user.online_presence:
+            site = entry.get("site", "Unknown")
+            content = entry.get("content", "")
+            if content:
+                online_parts.append(f"[{site}]\n{content}")
+        online_content = "\n\n".join(online_parts)
+
+    if not source_docs and not online_content:
+        print("No source documents or online presence data available.")
+        return
+
+    print("Generating comprehensive summary...")
+
+    prompt = f"""Create a comprehensive professional summary from the following information.
+
+SOURCE DOCUMENTS (CV, resume, etc.):
+{source_docs}
+
+ONLINE PRESENCE (LinkedIn, GitHub, portfolio):
+{online_content}
+
+Create a COMPREHENSIVE summary that includes:
+1. Full name and credentials
+2. Contact information (if available)
+3. Professional summary/headline
+4. COMPLETE work experience with:
+   - Company names
+   - Job titles
+   - Employment dates (month/year to month/year)
+   - Key responsibilities and achievements
+5. COMPLETE academic background with:
+   - Institutions
+   - Degrees and fields of study
+   - Graduation dates
+   - Notable achievements (publications, awards)
+6. Technical skills (categorized)
+7. Certifications and credentials
+8. Languages (if mentioned)
+9. Notable projects or portfolio items
+
+IMPORTANT:
+- Include ALL dates mentioned (employment periods, graduation years, etc.)
+- Be precise with job titles and company names
+- Don't summarize away important details
+- Keep all quantified achievements (metrics, percentages, etc.)
+- Maintain chronological order for experience and education
+- If information is missing or unclear, note it rather than guessing
+
+Return the summary in a clean, structured text format (not JSON).
+The summary should be thorough enough to write tailored cover letters without needing the original documents."""
+
+    success, response = run_claude(prompt, timeout=300)
+
+    if not success:
+        print(f"Failed to generate summary: {response}")
+        return
+
+    user.comprehensive_summary = response.strip()
+    user.save()
+    print("Comprehensive summary generated and saved.")
+
+    # Show a preview
+    preview = user.comprehensive_summary[:500]
+    if len(user.comprehensive_summary) > 500:
+        preview += "..."
+    print(f"\nPreview:\n{preview}")
 
 
 def configure_all(user: User):
@@ -435,8 +514,10 @@ def create_search_queries(user: User):
 
     print("Generating search queries...")
 
-    # Truncate docs to avoid token limits
-    docs_summary = user._combined_source_documents[:4000] if user._combined_source_documents else ""
+    # Prefer comprehensive summary, fall back to combined docs
+    user_background = user.comprehensive_summary or combined_documents_as_string(user.combined_source_documents)
+    # Truncate to avoid token limits
+    background_truncated = user_background[:4000] if user_background else ""
 
     prompt = f"""Based on this job seeker's profile, create 30 effective job search queries.
 
@@ -444,7 +525,7 @@ Job titles of interest: {user.desired_job_titles}
 Preferred locations: {user.desired_job_locations}
 
 Background summary:
-{docs_summary}
+{background_truncated}
 
 Create varied queries using:
 - Different job title variations and related roles

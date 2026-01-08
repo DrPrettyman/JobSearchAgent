@@ -1,3 +1,8 @@
 # Add your project dependencies here
 # Example: requests>=2.28.0
 inquirerpy>=0.3.4
+
+# Optional: for document parsing
+python-docx>=1.0.0  # Word documents (.docx)
+pypdf>=4.0.0  # PDF files
+openpyxl>=3.1.0  # Excel files (.xlsx)

@@ -4,6 +4,7 @@ from InquirerPy import inquirer
 
 from data_handlers import User
 from cli_utils import Colors, print_header, print_section, print_field, print_list, hyperlink
+from utils import combined_documents_as_string
 from configure import (
     configure_name,
     configure_email,
@@ -16,8 +17,10 @@ from configure import (
     refresh_source_documents,
     refresh_online_presence,
     create_search_queries,
+    generate_comprehensive_summary,
 )
 from search_jobs import search
+from cover_letter_writer import LetterWriter, generate_cover_letter_body
 
 
 def display_user_info(user: User, skip: bool = False):
@@ -72,6 +75,19 @@ def display_user_info(user: User, skip: bool = False):
             print(f"  {user.online_presence_summary}")
         print()
 
+    # Comprehensive Summary
+    print_section("Comprehensive Summary")
+    if user.comprehensive_summary:
+        preview = user.comprehensive_summary[:300]
+        if len(user.comprehensive_summary) > 300:
+            preview += "..."
+        print(f"  {Colors.GREEN}✓ Generated{Colors.RESET} ({len(user.comprehensive_summary)} chars)")
+        print(f"  {Colors.DIM}{preview}{Colors.RESET}")
+    else:
+        print(f"  {Colors.YELLOW}○ Not generated{Colors.RESET}")
+        print(f"  {Colors.DIM}Generate to improve cover letter quality{Colors.RESET}")
+    print()
+
 
 def user_info_menu(user: User, skip_first_display: bool = False):
     """Show user info and provide edit options."""
@@ -90,8 +106,11 @@ def user_info_menu(user: User, skip_first_display: bool = False):
                 {"name": "Edit job titles", "value": "titles"},
                 {"name": "Edit job locations", "value": "locations"},
                 {"name": "Edit source documents", "value": "documents"},
+                {"name": "─" * 30, "value": None, "disabled": ""},
                 {"name": "Refresh source documents", "value": "refresh_docs"},
                 {"name": "Refresh online presence", "value": "refresh_online"},
+                {"name": "✨ Generate comprehensive summary", "value": "comprehensive"},
+                {"name": "─" * 30, "value": None, "disabled": ""},
                 {"name": "← Back to main menu", "value": "back"},
             ],
         ).execute()
@@ -118,6 +137,8 @@ def user_info_menu(user: User, skip_first_display: bool = False):
             refresh_source_documents(user)
         elif action == "refresh_online":
             refresh_online_presence(user)
+        elif action == "comprehensive":
+            generate_comprehensive_summary(user)
 
 
 def search_menu(user: User):
@@ -337,6 +358,228 @@ def job_detail_menu(user: User, job):
             print(f"\n{Colors.DIM}Opening in browser...{Colors.RESET}\n")
 
 
+def cover_letter_menu(user: User):
+    """Generate cover letters for jobs."""
+    jobs = list(user.job_handler)
+
+    if not jobs:
+        print_header("Cover Letters")
+        print(f"  {Colors.DIM}No jobs found yet.{Colors.RESET}")
+        print(f"  {Colors.DIM}Search for jobs first to generate cover letters.{Colors.RESET}\n")
+        return
+
+    # Separate jobs with/without cover letters
+    jobs_without = [j for j in jobs if not j.cover_letter_body]
+    jobs_with = [j for j in jobs if j.cover_letter_body]
+
+    print_header("Cover Letters")
+    print(f"  {Colors.GREEN}✓ {len(jobs_with)} generated{Colors.RESET}  •  {Colors.YELLOW}○ {len(jobs_without)} pending{Colors.RESET}\n")
+
+    # Build choices - prioritize jobs without cover letters
+    choices = []
+
+    if jobs_without:
+        choices.append({"name": f"─── Needs Cover Letter ({len(jobs_without)}) ───", "value": None, "disabled": ""})
+        for job in jobs_without:
+            choices.append({
+                "name": f"  {Colors.YELLOW}○{Colors.RESET} {job.company} - {job.title}",
+                "value": job.id
+            })
+
+    if jobs_with:
+        choices.append({"name": f"─── Already Generated ({len(jobs_with)}) ───", "value": None, "disabled": ""})
+        for job in jobs_with:
+            choices.append({
+                "name": f"  {Colors.GREEN}✓{Colors.RESET} {job.company} - {job.title}",
+                "value": job.id
+            })
+
+    choices.append({"name": "─" * 30, "value": None, "disabled": ""})
+    choices.append({"name": "← Back to main menu", "value": "back"})
+
+    action = inquirer.select(
+        message="Select a job to generate/view cover letter:",
+        choices=choices,
+    ).execute()
+
+    if action == "back" or action is None:
+        return
+
+    job = user.job_handler.get(action)
+    if job:
+        cover_letter_detail_menu(user, job)
+
+
+def cover_letter_detail_menu(user: User, job):
+    """Generate or view cover letter for a specific job."""
+    while True:
+        print_header(f"Cover Letter: {job.company}")
+
+        print_section("Job Details")
+        print_field("Position", job.title)
+        print_field("Company", job.company)
+        print_field("Location", job.location)
+        print()
+
+        if job.cover_letter_body:
+            print_section("Cover Letter")
+            print(f"  {Colors.GREEN}✓ Generated{Colors.RESET}\n")
+
+            # Word wrap and display preview
+            preview = job.cover_letter_body[:600]
+            if len(job.cover_letter_body) > 600:
+                preview += "..."
+
+            words = preview.split()
+            line = "  "
+            for word in words:
+                if len(line) + len(word) > 78:
+                    print(line)
+                    line = "  "
+                line += word + " "
+            if line.strip():
+                print(line)
+
+            print(f"\n  {Colors.DIM}({len(job.cover_letter_body)} characters){Colors.RESET}\n")
+
+            choices = [
+                {"name": "📄 Export as PDF", "value": "pdf"},
+                {"name": "📝 Export as TXT", "value": "txt"},
+                {"name": "🔄 Regenerate", "value": "regenerate"},
+                {"name": "← Back to cover letters", "value": "back"},
+            ]
+        else:
+            print_section("Cover Letter")
+            print(f"  {Colors.YELLOW}○ Not yet generated{Colors.RESET}\n")
+
+            if not job.full_description and not job.description:
+                print(f"  {Colors.RED}⚠ No job description available.{Colors.RESET}")
+                print(f"  {Colors.DIM}Try refreshing job details first.{Colors.RESET}\n")
+
+            choices = [
+                {"name": "✨ Generate cover letter", "value": "generate"},
+                {"name": "← Back to cover letters", "value": "back"},
+            ]
+
+        action = inquirer.select(
+            message="What would you like to do?",
+            choices=choices,
+        ).execute()
+
+        if action == "back":
+            break
+        elif action in ("generate", "regenerate"):
+            generate_cover_letter_for_job(user, job)
+        elif action == "pdf":
+            export_cover_letter_pdf(user, job)
+        elif action == "txt":
+            export_cover_letter_txt(user, job)
+
+
+def generate_cover_letter_for_job(user: User, job):
+    """Generate cover letter content for a job."""
+    # Use full description if available, otherwise use summary
+    job_description = job.full_description or job.description
+
+    if not job_description:
+        print(f"\n{Colors.RED}Cannot generate: no job description available.{Colors.RESET}\n")
+        return
+
+    # Prefer comprehensive summary, fall back to combined docs
+    user_background = user.comprehensive_summary or combined_documents_as_string(user.combined_source_documents)
+
+    if not user_background:
+        print(f"\n{Colors.RED}Cannot generate: no source documents configured.{Colors.RESET}")
+        print(f"{Colors.DIM}Add your resume/CV in User Info first.{Colors.RESET}\n")
+        return
+
+    if not user.comprehensive_summary:
+        print(f"{Colors.YELLOW}Tip: Generate a comprehensive summary for better cover letters.{Colors.RESET}")
+
+    print(f"\n{Colors.CYAN}Generating cover letter...{Colors.RESET}")
+
+    body = generate_cover_letter_body(
+        job_title=job.title,
+        company=job.company,
+        job_description=job_description,
+        user_background=user_background
+    )
+
+    if body:
+        job.cover_letter_body = body
+        user.job_handler.save()
+        print(f"{Colors.GREEN}✓ Cover letter generated!{Colors.RESET}\n")
+    else:
+        print(f"{Colors.RED}Failed to generate cover letter.{Colors.RESET}\n")
+
+
+def export_cover_letter_pdf(user: User, job):
+    """Export cover letter as PDF."""
+    if not job.cover_letter_body:
+        print(f"\n{Colors.RED}No cover letter to export.{Colors.RESET}\n")
+        return
+
+    output_dir = user.directory_path / "cover_letters"
+    output_dir.mkdir(exist_ok=True)
+
+    writer = LetterWriter(
+        company=job.company,
+        title=job.title,
+        cover_letter_body=job.cover_letter_body,
+        user_name=user.name,
+        user_email=user.email,
+        user_linkedin_ext=user.linkedin_extension,
+        user_credentials=user.credentials,
+        user_website=user.websites[0] if user.websites else None,
+        addressee=job.addressee
+    )
+
+    print(f"\n{Colors.CYAN}Generating PDF...{Colors.RESET}")
+
+    try:
+        writer.save_pdf(output_dir)
+        output_path = output_dir / f"{writer.filename}.pdf"
+        print(f"{Colors.GREEN}✓ Saved to:{Colors.RESET} {output_path}\n")
+
+        # Offer to open
+        open_file = inquirer.confirm(
+            message="Open the PDF?",
+            default=True
+        ).execute()
+        if open_file:
+            import webbrowser
+            webbrowser.open(f"file://{output_path}")
+    except Exception as e:
+        print(f"{Colors.RED}Failed to generate PDF: {e}{Colors.RESET}")
+        print(f"{Colors.DIM}Make sure LaTeX (pdflatex) is installed.{Colors.RESET}\n")
+
+
+def export_cover_letter_txt(user: User, job):
+    """Export cover letter as plain text."""
+    if not job.cover_letter_body:
+        print(f"\n{Colors.RED}No cover letter to export.{Colors.RESET}\n")
+        return
+
+    output_dir = user.directory_path / "cover_letters"
+    output_dir.mkdir(exist_ok=True)
+
+    writer = LetterWriter(
+        company=job.company,
+        title=job.title,
+        cover_letter_body=job.cover_letter_body,
+        user_name=user.name,
+        user_email=user.email,
+        user_linkedin_ext=user.linkedin_extension,
+        user_credentials=user.credentials,
+        user_website=user.websites[0] if user.websites else None,
+        addressee=job.addressee
+    )
+
+    writer.save_txt(output_dir)
+    output_path = output_dir / f"{writer.filename}.txt"
+    print(f"\n{Colors.GREEN}✓ Saved to:{Colors.RESET} {output_path}\n")
+
+
 def main_menu(user: User):
     """Main application menu."""
     while True:
@@ -364,6 +607,6 @@ def main_menu(user: User):
         elif action == "jobs":
             jobs_menu(user)
         elif action == "cover":
-            print(f"\n{Colors.DIM}Cover letter generation coming soon...{Colors.RESET}\n")
+            cover_letter_menu(user)
         elif action == "settings":
             print(f"\n{Colors.DIM}Settings coming soon...{Colors.RESET}\n")

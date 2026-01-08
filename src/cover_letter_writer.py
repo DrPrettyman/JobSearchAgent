@@ -8,6 +8,8 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 
+from utils import run_claude
+
 LATEX_TEMPLATE = r"""\documentclass[11pt]{article}
 
 \usepackage[paper=a4paper,
@@ -218,3 +220,77 @@ class LetterWriter:
     def save_txt(self, output_dir: Path):
         txt_output_path = output_dir / f"{self.filename}.txt"
         txt_output_path.write_text(self.plain_text_cover_letter)
+
+
+def generate_cover_letter_body(
+    job_title: str,
+    company: str,
+    job_description: str,
+    user_background: str
+) -> str:
+    """Generate cover letter body text using Claude.
+
+    Args:
+        job_title: The job title
+        company: Company name
+        job_description: Full job description
+        user_background: User's combined source documents
+
+    Returns:
+        Cover letter body text (without salutation/closing), or empty string on failure
+    """
+    if not job_description or not user_background:
+        return ""
+
+    # Truncate to avoid token limits
+    job_desc_truncated = job_description[:8000]
+    background_truncated = user_background[:8000]
+
+    prompt = f"""Write a cover letter body for this job application.
+
+CANDIDATE BACKGROUND:
+{background_truncated}
+
+JOB DETAILS:
+Company: {company}
+Position: {job_title}
+Description:
+{job_desc_truncated}
+
+INSTRUCTIONS:
+- Write ONLY the body paragraphs (3-4 paragraphs)
+- Do NOT include salutation (Dear...) or closing (Yours sincerely...)
+- Be specific about how the candidate's experience matches the role
+- Highlight 2-3 most relevant skills or experiences
+- Keep it concise (250-350 words)
+- Use contractions (I'm, I've, wasn't) for a natural tone
+- Vary sentence and paragraph length deliberately
+
+AVOID THESE AI WRITING PATTERNS:
+
+1. Contrastive reframes: Never use "It wasn't just X, it was Y" or "This isn't about X, it's about Y". Just state what it is directly.
+
+2. Negation for false depth: Avoid "more than just", "not only... but also", "not simply about". Make the point without the negation setup.
+
+3. Rule of three: Don't use three parallel items for rhetorical effect ("expertise, passion, and commitment"). Use two items or four, or just one.
+
+4. Paragraph-opening hedges: Never start with "When it comes to...", "In today's rapidly evolving...", "In the realm of...". Start with the actual subject.
+
+5. Flattering intensifiers: Avoid "fascinating", "captivating", "remarkable", "compelling", "truly", "deeply", "genuinely". Don't call anything a "journey" or "transformation". Let facts speak.
+
+6. Excessive transitions: Don't use "Furthermore", "Moreover", "Indeed", "In summary". Don't start multiple sentences with "This" referring back. If ideas connect, the connection should be obvious.
+
+7. Mirrored structure: Don't make every paragraph the same length or follow the same pattern. A two-sentence paragraph followed by a longer one feels human.
+
+8. Em-dashes: Use colons, commas, or periods instead of em-dashes (--).
+
+9. Generic phrases: Never use "I am writing to apply", "aligns closely with", "I would welcome the opportunity", "I am excited to".
+
+Write the cover letter body now:"""
+
+    success, response = run_claude(prompt, timeout=120)
+
+    if not success:
+        return ""
+
+    return response.strip()
