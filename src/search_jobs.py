@@ -1,7 +1,7 @@
 """Runs a search for jobs on the web."""
 
 import json
-from utils import run_claude, scrape, combined_documents_as_string
+from utils import run_claude, scrape, combined_documents_as_string, extract_json_from_response
 from data_handlers import User
 
 
@@ -38,19 +38,8 @@ Focus on actual job postings, not job board listing pages."""
         return []
 
     try:
-        response = response.strip()
-        # Handle markdown code blocks
-        if "```" in response:
-            parts = response.split("```")
-            for part in parts:
-                if part.strip().startswith("json"):
-                    response = part.strip()[4:].strip()
-                    break
-                elif part.strip().startswith("["):
-                    response = part.strip()
-                    break
-
-        jobs = json.loads(response)
+        json_str = extract_json_from_response(response)
+        jobs = json.loads(json_str)
         if isinstance(jobs, list):
             return jobs
     except json.JSONDecodeError:
@@ -166,18 +155,8 @@ If no jobs are suitable, return: []"""
         return jobs
 
     try:
-        response = response.strip()
-        if "```" in response:
-            parts = response.split("```")
-            for part in parts:
-                if part.strip().startswith("json"):
-                    response = part.strip()[4:].strip()
-                    break
-                elif part.strip().startswith("["):
-                    response = part.strip()
-                    break
-
-        indices = json.loads(response)
+        json_str = extract_json_from_response(response)
+        indices = json.loads(json_str)
         if isinstance(indices, list):
             return [jobs[i] for i in indices if 0 <= i < len(jobs)]
     except (json.JSONDecodeError, IndexError):

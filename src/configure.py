@@ -4,7 +4,7 @@ from pathlib import Path
 from InquirerPy import inquirer
 from InquirerPy.validator import PathValidator
 
-from utils import run_claude, extract_url_slug, summarize_source_documents, summarize_online_presence, combine_documents, combined_documents_as_string
+from utils import run_claude, extract_url_slug, summarize_source_documents, summarize_online_presence, combine_documents, combined_documents_as_string, extract_json_from_response
 from online_presence import fetch_online_presence
 from data_handlers import User
 
@@ -137,7 +137,7 @@ def configure_websites(user: User):
 def configure_source_documents(user: User):
     """Configure source document paths."""
     while True:
-        paths = user._source_document_paths
+        paths = user.source_document_paths
         if paths:
             print("\nCurrent paths:")
             for i, p in enumerate(paths, 1):
@@ -158,7 +158,7 @@ def configure_source_documents(user: User):
         if action == "done":
             break
         elif action == "clear":
-            user._source_document_paths.clear()
+            user.clear_source_document_paths()
             print("Cleared all paths.")
         elif action == "remove":
             if not paths:
@@ -359,14 +359,8 @@ Background:
         return
 
     try:
-        response = response.strip()
-        if "```" in response:
-            response = response.split("```")[1]
-            if response.startswith("json"):
-                response = response[4:]
-            response = response.strip()
-
-        suggestions = json.loads(response)
+        json_str = extract_json_from_response(response)
+        suggestions = json.loads(json_str)
         suggested_titles = suggestions.get("job_titles", [])
         suggested_locations = suggestions.get("job_locations", [])
 
@@ -544,15 +538,8 @@ Return ONLY a JSON array of 30 query strings, no other text:
         return
 
     try:
-        response = response.strip()
-        # Handle markdown code blocks
-        if "```" in response:
-            response = response.split("```")[1]
-            if response.startswith("json"):
-                response = response[4:]
-            response = response.strip()
-
-        queries = json.loads(response)
+        json_str = extract_json_from_response(response)
+        queries = json.loads(json_str)
 
         if not isinstance(queries, list):
             print("Invalid response format from Claude.")

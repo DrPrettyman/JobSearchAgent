@@ -5,6 +5,26 @@ import glob as globlib
 from pathlib import Path
 
 
+def extract_json_from_response(response: str) -> str:
+    """Extract JSON from a Claude response, handling code blocks."""
+    response = response.strip()
+    if "```" not in response:
+        return response
+
+    # Find all code blocks
+    parts = response.split("```")
+    for i, part in enumerate(parts):
+        if i % 2 == 1:  # Odd indices are inside code blocks
+            content = part.strip()
+            if content.startswith("json"):
+                content = content[4:].strip()
+            # Check if it looks like JSON
+            if content.startswith("[") or content.startswith("{"):
+                return content
+
+    return response
+
+
 def resolve_paths(paths: list[str]) -> list[str]:
     """Resolve glob patterns in paths to actual file paths."""
     resolved_paths = []

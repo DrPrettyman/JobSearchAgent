@@ -207,6 +207,12 @@ class User:
         if path in self._source_document_paths:
             self._source_document_paths.remove(path)
 
+    def clear_source_document_paths(self):
+        """Clear all source document paths and related data."""
+        self._source_document_paths.clear()
+        self._combined_source_documents = []
+        self._source_document_summary = ""
+
     def remove_desired_job_title(self, title: str):
         if title in self._desired_job_titles:
             self._desired_job_titles.remove(title)
