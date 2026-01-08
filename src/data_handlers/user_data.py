@@ -10,11 +10,13 @@ class User:
     def __init__(self, 
                  file_path: Path, 
                  job_handler: Jobs, 
-                 query_handler: SearchQueries):
+                 query_handler: SearchQueries,
+                 is_new_user: bool = True):
         
         self._file_path = file_path
         self.job_handler = job_handler
         self.query_handler = query_handler
+        self.is_new_user = is_new_user
 
         if not file_path.exists():
             with open(file_path, "w") as f:

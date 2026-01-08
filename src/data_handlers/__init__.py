@@ -13,17 +13,19 @@ else:
     IS_NEW_USER = False
     
 SEARCH_QUERIES = SearchQueries(DATA_DIR / "search_queries.csv", DATA_DIR / "search_query_results.csv")
+
 JOBS = Jobs(file_path=DATA_DIR / "jobs.json")
+
 USER = User(
     file_path=DATA_DIR / "user_info.json",
     job_handler=JOBS,
-    query_handler=SEARCH_QUERIES
+    query_handler=SEARCH_QUERIES,
+    is_new_user=IS_NEW_USER
     )
 
 
 __all__ = [
     "USER", 
-    "IS_NEW_USER", 
     "User", 
     "SearchQueries", 
     "Jobs"
