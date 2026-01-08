@@ -18,9 +18,84 @@ from configure import (
     refresh_online_presence,
     create_search_queries,
     generate_comprehensive_summary,
+    suggest_from_documents,
 )
 from search_jobs import search
 from cover_letter_writer import LetterWriter, generate_cover_letter_body
+
+
+def first_time_setup(user: User):
+    """Guided setup flow for first-time users."""
+    print_header("Welcome to JobSearch")
+    print(f"  {Colors.DIM}Let's set up your profile to find the perfect job.{Colors.RESET}\n")
+
+    # Step 1: Basic info
+    print_section("Step 1: Basic Information")
+    configure_name(user)
+    configure_email(user)
+    configure_credentials(user)
+
+    # Step 2: Online presence
+    print_section("Step 2: Online Presence")
+    configure_linkedin(user)
+    configure_websites(user)
+
+    # Fetch online presence if URLs configured
+    has_online_urls = user.linkedin_extension or user.websites
+    if has_online_urls:
+        fetch = inquirer.confirm(
+            message="Fetch content from your online profiles?",
+            default=True
+        ).execute()
+        if fetch:
+            refresh_online_presence(user)
+
+    # Step 3: Source documents
+    print_section("Step 3: Source Documents (CV/Resume)")
+    print(f"  {Colors.DIM}Add your CV, resume, or other documents that describe your background.{Colors.RESET}\n")
+    configure_source_documents(user)
+
+    # Step 4: Job preferences
+    print_section("Step 4: Job Preferences")
+
+    # Offer AI suggestions if we have documents
+    if user.source_document_paths or user.online_presence:
+        use_ai = inquirer.confirm(
+            message="Would you like AI to suggest job titles and locations from your documents?",
+            default=True
+        ).execute()
+        if use_ai:
+            suggest_from_documents(user)
+
+    configure_job_titles(user)
+    configure_job_locations(user)
+
+    # Step 5: Generate comprehensive summary
+    has_content = user.source_document_paths or user.online_presence
+    if has_content:
+        print_section("Step 5: Generate Summary")
+        print(f"  {Colors.DIM}A comprehensive summary improves cover letter quality.{Colors.RESET}\n")
+        generate = inquirer.confirm(
+            message="Generate comprehensive summary now?",
+            default=True
+        ).execute()
+        if generate:
+            generate_comprehensive_summary(user)
+
+    # Step 6: Generate search queries
+    if user.desired_job_titles and user.desired_job_locations:
+        print_section("Step 6: Search Queries")
+        print(f"  {Colors.DIM}Search queries help find relevant job postings.{Colors.RESET}\n")
+        generate = inquirer.confirm(
+            message="Generate search queries now?",
+            default=True
+        ).execute()
+        if generate:
+            create_search_queries(user)
+
+    print_header("Setup Complete")
+    print(f"  {Colors.GREEN}✓ Your profile is ready!{Colors.RESET}")
+    print(f"  {Colors.DIM}You can now search for jobs from the main menu.{Colors.RESET}\n")
 
 
 def display_user_info(user: User, skip: bool = False):
@@ -143,49 +218,51 @@ def user_info_menu(user: User, skip_first_display: bool = False):
 
 def search_menu(user: User):
     """Search for jobs menu."""
-    print_header("Search for Jobs")
+    while True:
+        print_header("Search for Jobs")
 
-    num_queries = len(user.query_handler)
-    num_jobs = len(user.job_handler)
+        num_queries = len(user.query_handler)
+        num_jobs = len(user.job_handler)
 
-    print(f"  {Colors.DIM}Search queries: {num_queries}{Colors.RESET}")
-    print(f"  {Colors.DIM}Jobs found: {num_jobs}{Colors.RESET}\n")
+        print(f"  {Colors.DIM}Search queries: {num_queries}{Colors.RESET}")
+        print(f"  {Colors.DIM}Jobs found: {num_jobs}{Colors.RESET}\n")
 
-    if num_queries == 0:
-        print(f"{Colors.YELLOW}No search queries configured.{Colors.RESET}")
-        generate = inquirer.confirm(
-            message="Would you like to generate search queries now?",
-            default=True
-        ).execute()
-        if generate:
-            create_search_queries(user)
-            num_queries = len(user.query_handler)
-            if num_queries == 0:
-                print(f"\n{Colors.DIM}No queries generated. Configure job titles and locations first.{Colors.RESET}\n")
+        if num_queries == 0:
+            print(f"{Colors.YELLOW}No search queries configured.{Colors.RESET}")
+            generate = inquirer.confirm(
+                message="Would you like to generate search queries now?",
+                default=True
+            ).execute()
+            if generate:
+                create_search_queries(user)
+                num_queries = len(user.query_handler)
+                if num_queries == 0:
+                    print(f"\n{Colors.DIM}No queries generated. Configure job titles and locations first.{Colors.RESET}\n")
+                    return
+                continue
+            else:
                 return
-        else:
-            return
 
-    action = inquirer.select(
-        message="What would you like to do?",
-        choices=[
-            {"name": f"Run search ({num_queries} queries)", "value": "search"},
-            {"name": "Generate new queries", "value": "generate"},
-            {"name": "← Back to main menu", "value": "back"},
-        ],
-    ).execute()
-
-    if action == "back":
-        return
-    elif action == "generate":
-        create_search_queries(user)
-    elif action == "search":
-        fetch_desc = inquirer.confirm(
-            message="Fetch full job descriptions? (slower but more complete)",
-            default=True
+        action = inquirer.select(
+            message="What would you like to do?",
+            choices=[
+                {"name": f"Run search ({num_queries} queries)", "value": "search"},
+                {"name": "Generate new queries", "value": "generate"},
+                {"name": "← Back to main menu", "value": "back"},
+            ],
         ).execute()
-        search(user, fetch_descriptions=fetch_desc)
-        print()
+
+        if action == "back":
+            return
+        elif action == "generate":
+            create_search_queries(user)
+        elif action == "search":
+            fetch_desc = inquirer.confirm(
+                message="Fetch full job descriptions? (slower but more complete)",
+                default=True
+            ).execute()
+            search(user, fetch_descriptions=fetch_desc)
+            print()
 
 
 def display_job_card(job, index: int = None):
@@ -360,54 +437,55 @@ def job_detail_menu(user: User, job):
 
 def cover_letter_menu(user: User):
     """Generate cover letters for jobs."""
-    jobs = list(user.job_handler)
+    while True:
+        jobs = list(user.job_handler)
 
-    if not jobs:
+        if not jobs:
+            print_header("Cover Letters")
+            print(f"  {Colors.DIM}No jobs found yet.{Colors.RESET}")
+            print(f"  {Colors.DIM}Search for jobs first to generate cover letters.{Colors.RESET}\n")
+            return
+
+        # Separate jobs with/without cover letters
+        jobs_without = [j for j in jobs if not j.cover_letter_body]
+        jobs_with = [j for j in jobs if j.cover_letter_body]
+
         print_header("Cover Letters")
-        print(f"  {Colors.DIM}No jobs found yet.{Colors.RESET}")
-        print(f"  {Colors.DIM}Search for jobs first to generate cover letters.{Colors.RESET}\n")
-        return
+        print(f"  {Colors.GREEN}✓ {len(jobs_with)} generated{Colors.RESET}  •  {Colors.YELLOW}○ {len(jobs_without)} pending{Colors.RESET}\n")
 
-    # Separate jobs with/without cover letters
-    jobs_without = [j for j in jobs if not j.cover_letter_body]
-    jobs_with = [j for j in jobs if j.cover_letter_body]
+        # Build choices - prioritize jobs without cover letters
+        choices = []
 
-    print_header("Cover Letters")
-    print(f"  {Colors.GREEN}✓ {len(jobs_with)} generated{Colors.RESET}  •  {Colors.YELLOW}○ {len(jobs_without)} pending{Colors.RESET}\n")
+        if jobs_without:
+            choices.append({"name": f"─── Needs Cover Letter ({len(jobs_without)}) ───", "value": None, "disabled": ""})
+            for job in jobs_without:
+                choices.append({
+                    "name": f"  {Colors.YELLOW}○{Colors.RESET} {job.company} - {job.title}",
+                    "value": job.id
+                })
 
-    # Build choices - prioritize jobs without cover letters
-    choices = []
+        if jobs_with:
+            choices.append({"name": f"─── Already Generated ({len(jobs_with)}) ───", "value": None, "disabled": ""})
+            for job in jobs_with:
+                choices.append({
+                    "name": f"  {Colors.GREEN}✓{Colors.RESET} {job.company} - {job.title}",
+                    "value": job.id
+                })
 
-    if jobs_without:
-        choices.append({"name": f"─── Needs Cover Letter ({len(jobs_without)}) ───", "value": None, "disabled": ""})
-        for job in jobs_without:
-            choices.append({
-                "name": f"  {Colors.YELLOW}○{Colors.RESET} {job.company} - {job.title}",
-                "value": job.id
-            })
+        choices.append({"name": "─" * 30, "value": None, "disabled": ""})
+        choices.append({"name": "← Back to main menu", "value": "back"})
 
-    if jobs_with:
-        choices.append({"name": f"─── Already Generated ({len(jobs_with)}) ───", "value": None, "disabled": ""})
-        for job in jobs_with:
-            choices.append({
-                "name": f"  {Colors.GREEN}✓{Colors.RESET} {job.company} - {job.title}",
-                "value": job.id
-            })
+        action = inquirer.select(
+            message="Select a job to generate/view cover letter:",
+            choices=choices,
+        ).execute()
 
-    choices.append({"name": "─" * 30, "value": None, "disabled": ""})
-    choices.append({"name": "← Back to main menu", "value": "back"})
+        if action == "back" or action is None:
+            return
 
-    action = inquirer.select(
-        message="Select a job to generate/view cover letter:",
-        choices=choices,
-    ).execute()
-
-    if action == "back" or action is None:
-        return
-
-    job = user.job_handler.get(action)
-    if job:
-        cover_letter_detail_menu(user, job)
+        job = user.job_handler.get(action)
+        if job:
+            cover_letter_detail_menu(user, job)
 
 
 def cover_letter_detail_menu(user: User, job):

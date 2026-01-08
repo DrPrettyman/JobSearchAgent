@@ -1,27 +1,39 @@
 """Main CLI for JobSearch application."""
+import argparse
 from pathlib import Path
 
 from data_handlers import User
-from cli_utils import Colors, print_header
-from cli_menus import main_menu, user_info_menu
+from cli_menus import main_menu, first_time_setup
 
 DATA_DIR = Path.home() / ".JobSearch"
 if not DATA_DIR.exists():
-    IS_NEW_USER = True
     DATA_DIR.mkdir()
-else:
-    IS_NEW_USER = False
+    
+DEFAULT_USER_ID = Path.home().name
 
 
-USER = User(directory_path=DATA_DIR)
+def get_or_create_user(user_id: str):
+    user_data_dir = DATA_DIR / user_id
+    if not user_data_dir.exists():
+        is_new_user = True
+        user_data_dir.mkdir()
+    else:
+        if user_data_dir.is_file():
+            raise ValueError("directory is a file!")
+        is_new_user = False
+        
+    return User(directory_path=user_data_dir), is_new_user
 
-def main():
-    if IS_NEW_USER:
-        print_header("Welcome to JobSearch!")
-        print(f"{Colors.DIM}Let's set up your profile to get started.{Colors.RESET}\n")
-        user_info_menu(USER, skip_first_display=True)
-    main_menu(USER)
+
+def main(user_id: str):
+    user, is_new_user = get_or_create_user(user_id)
+    if is_new_user:
+        first_time_setup(user)
+    main_menu(user)
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description="JobSearch CLI application")
+    parser.add_argument("--user_id", "-u", default=DEFAULT_USER_ID, help="User ID for the session")
+    args = parser.parse_args()
+    main(user_id=args.user_id)
