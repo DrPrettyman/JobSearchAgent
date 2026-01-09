@@ -250,7 +250,7 @@ def search(user: User, max_queries: int = None, fetch_descriptions: bool = True)
     recent_queries_used = set()
     for record in abandoned_searches:
         jobs.extend(record.get("jobs", []))
-        if timestamp_is_recent(record.get("timestamp", ""), recent_threshold_hours=24):
+        if timestamp_is_recent(record.get("timestamp", ""), recent_threshold_hours=12):
             recent_queries_used.add(record.get("query_str"))
 
     # Filter out queries already completed recently
