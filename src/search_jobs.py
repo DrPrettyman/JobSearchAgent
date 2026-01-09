@@ -59,9 +59,6 @@ def fetch_full_description(url: str) -> str:
     if not html_text or len(html_text) < 100:
         return ""
 
-    # Truncate if too long to avoid token limits
-    html_text = html_text[:15000]
-
     prompt = f"""Extract the job description from this job posting page content.
 Return ONLY the job description text, nothing else. If you cannot find a clear job description, return exactly: NONE
 
@@ -121,9 +118,6 @@ def filter_unsuitable(jobs: list[dict], user_docs: str) -> list[dict]:
 
     if not user_docs:
         return jobs  # Can't filter without user docs
-
-    # Truncate to avoid token limits
-    user_docs = user_docs[:6000]
 
     jobs_summary = json.dumps([{
         "index": i,
