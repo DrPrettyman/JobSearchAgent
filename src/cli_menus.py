@@ -9,6 +9,7 @@ from InquirerPy.validator import PathValidator
 from data_handlers import User, Job, Jobs
 from cli_utils import (
     Colors,
+    ASCII_ART_JOBSEARCH,
     clear_screen,
     print_header,
     print_section,
@@ -195,7 +196,8 @@ class UserOptions:
     def first_time_setup(self):
         """Guided setup flow for first-time users."""
         clear_screen()
-        print_header("Welcome to JobSearch")
+        print(f"{Colors.CYAN}{ASCII_ART_JOBSEARCH}{Colors.RESET}")
+        print(ASCII_ART_JOBSEARCH)
         print(f"  {Colors.DIM}Let's set up your profile to find the perfect job.{Colors.RESET}\n")
 
         # Step 1: Basic info
@@ -972,6 +974,7 @@ Return ONLY a JSON array of 30 query strings, no other text:
         while True:
             clear_screen()
             print_header("JobSearch")
+            print(ASCII_ART_JOBSEARCH)
 
             action = inquirer.select(
                 message="Select an option:",
