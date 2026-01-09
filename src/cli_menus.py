@@ -286,36 +286,28 @@ class UserOptions:
                 print(f"  {Colors.GREEN}•{Colors.RESET} {site}")
             print()
 
-        # Job Preferences
-        print_section("Job Preferences")
-        print_list("Desired Titles", self.user.desired_job_titles)
+        # Information sources
+        print_section("Information Sources")
+        for path in self.user.source_document_paths:
+            print(f"  {Colors.GREEN}•{Colors.RESET} {path}")
+        for entry in self.user.online_presence:
+            site = entry.get("site", "Unknown")
+            time_fetched = entry.get("time_fetched", "")
+            if entry.get("success"):
+                _content_len = len(entry.get("content", ""))
+                fetched_summary = f"Fetched: {time_fetched[:10]} ({_content_len} chars)"
+            else:
+                fetched_summary = f"Unable to fetch (attempted: {time_fetched})"
+            print(f"  {Colors.GREEN}•{Colors.RESET} {site} {Colors.DIM}{fetched_summary}{Colors.RESET}")
+            
+        
+        if self.user.source_document_summary:
+            print(f"\n  {Colors.DIM}Document Summary:{Colors.RESET}")
+            print(f"  {self.user.source_document_summary}")
+        if self.user.online_presence_summary:
+            print(f"\n  {Colors.DIM}Online Summary:{Colors.RESET}")
+            print(f"  {self.user.online_presence_summary}")
         print()
-        print_list("Desired Locations", self.user.desired_job_locations)
-        print()
-
-        # Source Documents
-        if self.user.source_document_paths:
-            print_section("Source Documents")
-            for path in self.user.source_document_paths:
-                print(f"  {Colors.GREEN}•{Colors.RESET} {path}")
-            if self.user.source_document_summary:
-                print(f"\n  {Colors.DIM}Summary:{Colors.RESET}")
-                print(f"  {self.user.source_document_summary}")
-            print()
-
-        # Online Presence
-        if self.user.online_presence:
-            print_section("Online Presence")
-            for entry in self.user.online_presence:
-                site = entry.get("site", "Unknown")
-                time_fetched = entry.get("time_fetched", "")[:10]  # Just date
-                content_len = len(entry.get("content", ""))
-                print(f"  {Colors.GREEN}•{Colors.RESET} {site}")
-                print(f"    {Colors.DIM}Fetched: {time_fetched} ({content_len} chars){Colors.RESET}")
-            if self.user.online_presence_summary:
-                print(f"\n  {Colors.DIM}Summary:{Colors.RESET}")
-                print(f"  {self.user.online_presence_summary}")
-            print()
 
         # Comprehensive Summary
         print_section("Comprehensive Summary")
@@ -328,6 +320,13 @@ class UserOptions:
         else:
             print(f"  {Colors.YELLOW}○ Not generated{Colors.RESET}")
             print(f"  {Colors.DIM}Generate to improve cover letter quality{Colors.RESET}")
+        print()
+        
+        # Job Preferences
+        print_section("Job Preferences")
+        print_list("Desired Titles", self.user.desired_job_titles)
+        print()
+        print_list("Desired Locations", self.user.desired_job_locations)
         print()
 
     def configure_name(self):
@@ -403,6 +402,7 @@ class UserOptions:
 
     def configure_websites(self):
         """Configure personal websites/portfolios."""
+        websites_before = set(self.user.all_websites)
         while True:
             clear_screen()
             print_header("Websites")
@@ -447,6 +447,11 @@ class UserOptions:
                 self.user.remove_website(url)
                 print(f"Moved LinkedIn URL to dedicated field: {parsed}")
         self.user.save()
+        
+        websites_after = set(self.user.all_websites)
+        
+        if websites_before != websites_after:
+            self.refresh_online_presence
 
     def configure_job_titles(self):
         """Configure desired job titles."""
@@ -461,7 +466,10 @@ class UserOptions:
             else:
                 print(f"  {Colors.DIM}No job titles configured{Colors.RESET}\n")
 
-            choices = [{"name": "Add a title", "value": "add"}]
+            choices = [
+                {"name": "Add a title manually", "value": "add"},
+                {"name": "Add a title from AI suggestions", "value": "add"}
+            ]
             if titles:
                 choices.append({"name": "Remove a title", "value": "remove"})
             choices.append({"name": "← Done", "value": "done"})
