@@ -282,13 +282,6 @@ class UserOptions:
         print_field("LinkedIn", self.user.linkedin_url if self.user.linkedin_extension else "")
         print()
 
-        # Websites
-        if self.user.websites:
-            print_section("Websites")
-            for site in self.user.websites:
-                print(f"  {Colors.GREEN}•{Colors.RESET} {site}")
-            print()
-
         # Information sources
         print_section("Information Sources")
         for path in self.user.source_document_paths:
@@ -301,7 +294,7 @@ class UserOptions:
                 fetched_summary = f"Fetched: {time_fetched[:10]} ({_content_len} chars)"
             else:
                 fetched_summary = f"Unable to fetch (attempted: {time_fetched})"
-            print(f"  {Colors.GREEN}•{Colors.RESET} {site} {Colors.DIM}{fetched_summary}{Colors.RESET}")
+            print(f"  {Colors.GREEN}•{Colors.RESET} {hyperlink(site)} {Colors.DIM}{fetched_summary}{Colors.RESET}")
             
         
         if self.user.source_document_summary:
