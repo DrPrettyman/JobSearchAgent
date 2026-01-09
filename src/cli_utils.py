@@ -41,11 +41,16 @@ class Colors:
     DIM = "\033[2m"
     RESET = "\033[0m"
 
+def print_thick_line(color=Colors.CYAN):
+    print(f"\n{Colors.BOLD}{color}{'═' * 50}{Colors.RESET}")
+
 
 def print_header(text: str):
-    print(f"\n{Colors.BOLD}{Colors.CYAN}{'═' * 50}{Colors.RESET}")
+    print()
+    print_thick_line()
     print(f"{Colors.BOLD}{Colors.CYAN}  {text}{Colors.RESET}")
-    print(f"{Colors.BOLD}{Colors.CYAN}{'═' * 50}{Colors.RESET}\n")
+    print_thick_line()
+    print()
 
 
 def print_section(title: str):
@@ -69,6 +74,35 @@ def print_list(label: str, items: list, indent: int = 2):
             print(f"{spaces}  {Colors.GREEN}•{Colors.RESET} {item}")
     else:
         print(f"{spaces}  {Colors.DIM}(none){Colors.RESET}")
+
+
+def print_box(title: str, content: str, width: int = 70, indent: int = 2):
+    """Display content inside a bordered box with a title."""
+    spaces = " " * indent
+    inner_width = width - 4  # Account for border and padding
+
+    # Word wrap the content
+    lines = []
+    for paragraph in content.split('\n'):
+        if not paragraph.strip():
+            lines.append('')
+            continue
+        words = paragraph.split()
+        line = ""
+        for word in words:
+            if len(line) + len(word) + 1 > inner_width:
+                lines.append(line.rstrip())
+                line = ""
+            line += word + " "
+        if line.strip():
+            lines.append(line.rstrip())
+
+    # Print box
+    print(f"{spaces}{Colors.CYAN}╭─ {title} {'─' * (width - len(title) - 5)}╮{Colors.RESET}")
+    for line in lines:
+        padding = inner_width - len(line)
+        print(f"{spaces}{Colors.CYAN}│{Colors.RESET} {line}{' ' * padding} {Colors.CYAN}│{Colors.RESET}")
+    print(f"{spaces}{Colors.CYAN}╰{'─' * (width - 2)}╯{Colors.RESET}")
 
 
 def display_job_card(job: Job, index: int = None):
