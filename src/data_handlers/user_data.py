@@ -185,13 +185,14 @@ class User:
     def cover_letter_output_dir(self, value: str):
         self._cover_letter_output_dir = value
 
-    def add_online_presence(self, site: str, content: str, time_fetched: str):
+    def add_online_presence(self, site: str, content: str, time_fetched: str, success: bool):
         """Add or update online presence entry for a site."""
         # Remove existing entry for this site if present
         self._online_presence = [p for p in self._online_presence if p.get("site") != site]
         self._online_presence.append({
             "site": site,
             "time_fetched": time_fetched,
+            "fetch_success": success,
             "content": content
         })
 

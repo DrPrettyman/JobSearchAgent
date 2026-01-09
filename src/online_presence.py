@@ -135,7 +135,7 @@ Keep the summary concise but informative (3-5 paragraphs)."""
     return response.strip()
 
 
-def fetch_website_content(url: str) -> str:
+def fetch_website_content(url: str) -> str | None:
     """Scrape a website and extract relevant professional information.
 
     Args:
@@ -148,10 +148,10 @@ def fetch_website_content(url: str) -> str:
         html_text = scrape(url)
     except Exception as e:
         print(f"  Could not scrape {url}: {e}")
-        return ""
+        return None
 
     if not html_text or len(html_text) < 100:
-        return ""
+        return None
 
     prompt = f"""Extract professional/career-relevant information from this website content.
 
@@ -172,11 +172,11 @@ Website content:
     success, response = run_claude(prompt, timeout=60)
 
     if not success:
-        return ""
+        return None
 
     response = response.strip()
     if response == "NONE" or len(response) < 50:
-        return ""
+        return None
 
     return response
 
@@ -206,13 +206,16 @@ def fetch_online_presence(urls: list[str]) -> list[dict]:
         else:
             print(f"Fetching website: {url}")
             content = fetch_website_content(url)
-
-        if content:
-            results.append({
+            
+        results.append({
                 "site": url,
                 "time_fetched": datetime_iso(),
-                "content": content
+                "content": content,
+                "success": content is not None
             })
+
+        if content:
+            
             print(f"  Got {len(content)} chars")
         else:
             print("  No content extracted")
