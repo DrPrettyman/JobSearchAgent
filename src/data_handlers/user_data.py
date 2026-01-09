@@ -12,7 +12,7 @@ class User:
         self._file_path = directory_path / "user_info.json"
         self.job_handler = Jobs(file_path=directory_path / "jobs.json")
         self.query_handler = SearchQueries(
-            file_path=directory_path / "search_queries.csv", 
+            queries_path=directory_path / "search_queries.csv", 
             results_path=directory_path / "search_query_results.csv"
             )
 
@@ -48,6 +48,7 @@ class User:
         self._online_presence_summary = user_info.get("online_presence_summary", "")
         self._comprehensive_summary = user_info.get("comprehensive_summary", "")
         self._combined_source_documents = user_info.get("combined_source_documents", [])
+        self._cover_letter_output_dir = user_info.get("cover_letter_output_dir", "")
 
     def save(self):
         with open(self._file_path, "w") as f:
@@ -65,7 +66,8 @@ class User:
                     "source_document_summary": self._source_document_summary,
                     "online_presence_summary": self._online_presence_summary,
                     "comprehensive_summary": self._comprehensive_summary,
-                    "combined_source_documents": self._combined_source_documents
+                    "combined_source_documents": self._combined_source_documents,
+                    "cover_letter_output_dir": self._cover_letter_output_dir
                 },
                 f,
                 indent=4
@@ -168,6 +170,20 @@ class User:
     @comprehensive_summary.setter
     def comprehensive_summary(self, value: str):
         self._comprehensive_summary = value
+
+    @property
+    def cover_letter_output_dir(self) -> Path:
+        """Returns cover letter output directory, creating it if needed."""
+        if self._cover_letter_output_dir:
+            path = Path(self._cover_letter_output_dir)
+        else:
+            path = self.directory_path / "cover_letters"
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    @cover_letter_output_dir.setter
+    def cover_letter_output_dir(self, value: str):
+        self._cover_letter_output_dir = value
 
     def add_online_presence(self, site: str, content: str, time_fetched: str):
         """Add or update online presence entry for a site."""
