@@ -153,9 +153,6 @@ def fetch_website_content(url: str) -> str:
     if not html_text or len(html_text) < 100:
         return ""
 
-    # Truncate if too long to avoid token limits
-    html_text = html_text[:15000]
-
     prompt = f"""Extract professional/career-relevant information from this website content.
 
 Look for:
