@@ -192,7 +192,9 @@ class UserOptions:
 
     def __init__(self, user: User):
         self.user = user
-
+        self._job_title_suggestions = []
+        self._job_location_suggestions = []
+        
     def first_time_setup(self):
         """Guided setup flow for first-time users."""
         clear_screen()
