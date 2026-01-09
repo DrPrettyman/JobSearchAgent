@@ -12,24 +12,9 @@ if not DATA_DIR.exists():
 DEFAULT_USER_ID = Path.home().name
 
 
-def get_or_create_user(user_id: str):
-    user_data_dir = DATA_DIR / user_id
-    if not user_data_dir.exists():
-        is_new_user = True
-        user_data_dir.mkdir()
-    else:
-        if user_data_dir.is_file():
-            raise ValueError("directory is a file!")
-        is_new_user = False
-        
-    return User(directory_path=user_data_dir), is_new_user
-
-
 def main(user_id: str):
-    user, is_new_user = get_or_create_user(user_id)
+    user = User(directory_path=DATA_DIR / user_id)
     menu = UserOptions(user)
-    if is_new_user:
-        menu.first_time_setup()
     menu.main_menu()
 
 

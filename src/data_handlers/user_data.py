@@ -9,6 +9,9 @@ class User:
         
         self.directory_path = directory_path
         
+        if not directory_path.exists():
+            directory_path.mkdir()
+        
         self._file_path = directory_path / "user_info.json"
         self.job_handler = Jobs(file_path=directory_path / "jobs.json")
         self.query_handler = SearchQueries(
@@ -49,29 +52,34 @@ class User:
         self._comprehensive_summary = user_info.get("comprehensive_summary", "")
         self._combined_source_documents = user_info.get("combined_source_documents", [])
         self._cover_letter_output_dir = user_info.get("cover_letter_output_dir", "")
+        
+    def to_dict(self) -> dict:
+        return {
+            "name": self._name,
+            "email": self._email,
+            "credentials": self._credentials,
+            "linkedin_extension": self._linkedin_extension,
+            "websites": self._websites,
+            "source_document_paths": self._source_document_paths,
+            "desired_job_titles": self._desired_job_titles,
+            "desired_job_locations": self._desired_job_locations,
+            "online_presence": self._online_presence,
+            "source_document_summary": self._source_document_summary,
+            "online_presence_summary": self._online_presence_summary,
+            "comprehensive_summary": self._comprehensive_summary,
+            "combined_source_documents": self._combined_source_documents,
+            "cover_letter_output_dir": self._cover_letter_output_dir
+        }    
+    
+    def is_new_user(self):
+        for value in self.to_dict().values():
+            if value:
+                return False
+        return True
 
     def save(self):
         with open(self._file_path, "w") as f:
-            json.dump(
-                {
-                    "name": self._name,
-                    "email": self._email,
-                    "credentials": self._credentials,
-                    "linkedin_extension": self._linkedin_extension,
-                    "websites": self._websites,
-                    "source_document_paths": self._source_document_paths,
-                    "desired_job_titles": self._desired_job_titles,
-                    "desired_job_locations": self._desired_job_locations,
-                    "online_presence": self._online_presence,
-                    "source_document_summary": self._source_document_summary,
-                    "online_presence_summary": self._online_presence_summary,
-                    "comprehensive_summary": self._comprehensive_summary,
-                    "combined_source_documents": self._combined_source_documents,
-                    "cover_letter_output_dir": self._cover_letter_output_dir
-                },
-                f,
-                indent=4
-            )
+            json.dump(self.to_dict(), f, indent=4)
 
     @property
     def name(self) -> str:

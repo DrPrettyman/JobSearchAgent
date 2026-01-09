@@ -984,10 +984,16 @@ Return ONLY a JSON array of 30 query strings, no other text:
     
     def main_menu(self):
         """Main application menu."""
+        
+                
+        if self.user.is_new_user():
+            self.first_time_setup()
+            
         while True:
             clear_screen()
-            print_header("JobSearch")
             print(ASCII_ART_JOBSEARCH)
+            
+            print_header(f"Welcome {self.user.name}")
 
             action = inquirer.select(
                 message="Select an option:",
