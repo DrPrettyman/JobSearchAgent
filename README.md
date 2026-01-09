@@ -11,6 +11,9 @@ $$ |  $$ |$$ |  $$ |$$ |  $$ |$$\   $$ |$$   ____|$$  __$$ |$$ |      $$ |      
  \______/  \______/ \_______/  \______/  \_______| \_______|\__|       \_______|\__|  \__|
 ```
 
+![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)
+![License](https://img.shields.io/badge/License-MIT-yellow.svg)
+
 An AI-powered CLI tool for automating your job search. Upload your CV, configure your preferences, and let Claude AI find relevant positions, filter them for suitability, and generate tailored cover letters.
 
 ## Features
