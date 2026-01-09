@@ -122,6 +122,10 @@ class User:
     def remove_website(self, url: str):
         if url in self._websites:
             self._websites.remove(url)
+            
+    @property
+    def all_websites(self):
+        return [url for url in (self.websites + [self.linkedin_url])]
 
     @property
     def source_document_paths(self) -> list[str]:
