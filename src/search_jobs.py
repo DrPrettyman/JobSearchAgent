@@ -2,13 +2,14 @@
 
 import json
 from utils import run_claude, scrape, combined_documents_as_string, extract_json_from_response
-from data_handlers import User
+from data_handlers import User, SearchQueries, SearchQuery
+from data_handlers.utils import timestamp_is_recent
 
 
-def search_query(query: str) -> list[dict]:
+def search_query(query_str: str) -> list[dict]:
     """Search for jobs using a query and return list of job info dicts."""
 
-    prompt = f"""Search the web for this job search query: {query}
+    prompt = f"""Search the web for this job search query: {query_str}
 
 Find job postings that match this query. Extract basic info from search results.
 
@@ -77,7 +78,7 @@ Page content:
     return response
 
 
-def process_query(query) -> list[dict]:
+def process_query(query: SearchQuery) -> list[dict]:
     """Process a single search query.
 
     Returns list of job dicts found.
@@ -159,21 +160,13 @@ If no jobs are suitable, return: []"""
     return jobs
 
 
-def search(user: User, max_queries: int = None, fetch_descriptions: bool = True):
+def search_for_jobs(user: User, queries: list[SearchQuery]):
     """Search for jobs using all queries.
 
     Args:
         user: User object with query_handler and job_handler
-        max_queries: Limit number of queries to process (for testing)
-        fetch_descriptions: Whether to scrape full descriptions (slower but more complete)
+        queries: List of SearchQuery objects to process
     """
-    queries = list(user.query_handler)
-    if max_queries:
-        queries = queries[:max_queries]
-
-    if not queries:
-        print("No search queries configured. Generate queries first.")
-        return
 
     print(f"Searching with {len(queries)} queries...")
     all_jobs = []
@@ -182,13 +175,19 @@ def search(user: User, max_queries: int = None, fetch_descriptions: bool = True)
     for i, query in enumerate(queries, 1):
         print(f"\n[{i}/{len(queries)}] {query.query[:60]}...")
         jobs_found = process_query(query)
+        # Save to temp file for crash recovery
+        user.job_handler.append_to_temp(query.query, jobs_found)
         all_jobs.extend(jobs_found)
 
     print(f"\nFound {len(all_jobs)} total jobs")
 
+    return all_jobs
+    
+    
+def post_process_jobs(jobs, user: User, fetch_descriptions: bool = True):
     # Filter duplicates
     print("\nFiltering duplicates...")
-    all_jobs = filter_duplicates(all_jobs, user)
+    all_jobs = filter_duplicates(jobs, user)
     print(f"  {len(all_jobs)} new jobs after deduplication")
 
     if not all_jobs:
@@ -234,3 +233,40 @@ def search(user: User, max_queries: int = None, fetch_descriptions: bool = True)
 
     user.job_handler.save()
     print(f"\nDone! Added {len(all_jobs)} new jobs. Total jobs: {len(user.job_handler)}")
+
+
+def search(user: User, max_queries: int = None, fetch_descriptions: bool = True):
+    queries = list(user.query_handler)
+    if max_queries:
+        queries = queries[:max_queries]
+
+    jobs = []
+
+    # Look for any abandoned searches from the temp file
+    abandoned_searches = user.job_handler.read_temp()
+    if abandoned_searches:
+        print(f"Found {len(abandoned_searches)} abandoned search results from previous session")
+
+    recent_queries_used = set()
+    for record in abandoned_searches:
+        jobs.extend(record.get("jobs", []))
+        if timestamp_is_recent(record.get("timestamp", ""), recent_threshold_hours=24):
+            recent_queries_used.add(record.get("query_str"))
+
+    # Filter out queries already completed recently
+    queries = [q for q in queries if q.query not in recent_queries_used]
+
+    if not queries and not jobs:
+        print("No search queries configured. Generate queries first.")
+        return
+
+    if queries:
+        jobs_found = search_for_jobs(user=user, queries=queries)
+        jobs.extend(jobs_found)
+    else:
+        print("All queries already completed recently. Processing recovered jobs...")
+
+    post_process_jobs(jobs=jobs, user=user, fetch_descriptions=fetch_descriptions)
+
+    # Clear temp file after successful processing
+    user.job_handler.clear_temp()

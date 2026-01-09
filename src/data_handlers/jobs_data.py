@@ -20,7 +20,7 @@ class Job:
         full_description: str,
         cover_letter_body: str,
         addressee: str | None,
-        cover_letter_pdf_path: Path | str | None
+        cover_letter_pdf_path: Path | str | None = None
     ):
         self.id = _id
         self.company = company
@@ -106,6 +106,7 @@ class Job:
 class Jobs:
     def __init__(self, file_path: Path):
         self._file_path = file_path
+        self._temp_file = file_path.parent / "search_temp.jsonl"
         if not file_path.exists():
             with open(file_path, "w") as f:
                 json.dump({}, f)
@@ -208,4 +209,40 @@ class Jobs:
     def get(self, _id: str) -> Job | None:
         """Get a job by ID."""
         return self._jobs.get(_id)
+
+    @property
+    def temp_file(self) -> Path:
+        """Path to temporary JSONL file for crash recovery."""
+        return self._temp_file
+
+    def append_to_temp(self, query_str: str, jobs: list[dict]):
+        """Append a search result record to the temp file."""
+        from .utils import datetime_iso
+        record = {
+            "query_str": query_str,
+            "timestamp": datetime_iso(),
+            "jobs": jobs
+        }
+        with open(self._temp_file, "a") as f:
+            f.write(json.dumps(record) + "\n")
+
+    def read_temp(self) -> list[dict]:
+        """Read all records from temp file."""
+        if not self._temp_file.exists():
+            return []
+        records = []
+        with open(self._temp_file, "r") as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    try:
+                        records.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        continue
+        return records
+
+    def clear_temp(self):
+        """Clear the temp file after successful processing."""
+        if self._temp_file.exists():
+            self._temp_file.unlink()
 
