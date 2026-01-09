@@ -304,11 +304,9 @@ class UserOptions:
             
         
         if self.user.source_document_summary:
-            print(f"\n  {Colors.DIM}Document Summary:{Colors.RESET}")
-            print(f"  {self.user.source_document_summary}")
+            print(f"\n  {Colors.DIM}Document Summary:{Colors.RESET} {self.user.source_document_summary}")
         if self.user.online_presence_summary:
-            print(f"\n  {Colors.DIM}Online Summary:{Colors.RESET}")
-            print(f"  {self.user.online_presence_summary}")
+            print(f"\n  {Colors.DIM}Online Summary:  {Colors.RESET} {self.user.online_presence_summary}")
         print()
 
         # Comprehensive Summary
