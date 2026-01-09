@@ -2,6 +2,7 @@
 Generate PDF cover letters from using LaTeX.
 """
 
+import json
 import subprocess
 import tempfile
 import re
@@ -196,37 +197,112 @@ class LetterWriter:
         latex_template = latex_template.replace('<INSERT_BODY>', cover_letter_formatted)
         latex_template = latex_template.replace('<INSERT_SIGNOFF>', self.sign_off)
 
-        return latex_template
+        return latex_template      
 
-    @property
-    def plain_text_cover_letter(self) -> str:
-        """Generate plain text cover letter (no letterhead)."""
-        lines = [
-            f"Dear {self.addressee},",
-            "",
-            self.cover_letter_body,
-            "",
-            f"Yours {self.sign_off},",
-            "",
-            "Joshua Prettyman"
-        ]
-        return "\n".join(lines)
-
-    def save_pdf(self, output_dir: Path):
+    def save_pdf(self, output_dir: Path) -> Path | None:
         """Save PDF cover letter to file."""
         output_path = output_dir / f"{self.filename}.pdf"
-        compile_latex_to_pdf(self.latex_source_cover_letter, output_path)
-        
-    def save_txt(self, output_dir: Path):
-        txt_output_path = output_dir / f"{self.filename}.txt"
-        txt_output_path.write_text(self.plain_text_cover_letter)
+        compiled = compile_latex_to_pdf(self.latex_source_cover_letter, output_path)
+        if compiled:
+            return output_path
+        else:
+            return None
+
+
+def generate_cover_letter_topics(
+    job_description: str,
+    user_background: str
+) -> list[dict]:
+    """Analyze job description and generate cover letter topics.
+
+    Follows Steps 1-3 from claude-instructions.md:
+    1. Analyse the job description for key topics
+    2. Map each topic to relevant candidate experience
+    3. Select 3-5 strongest points
+
+    Args:
+        job_description: Full job description
+        user_background: User's combined source documents
+
+    Returns:
+        List of dicts with "topic" and "relevant_experience" keys, or empty list on failure
+    """
+    if not job_description or not user_background:
+        return []
+
+    prompt = f"""Analyze this job description and candidate background to identify cover letter topics.
+
+JOB DESCRIPTION:
+{job_description}
+
+CANDIDATE BACKGROUND:
+{user_background}
+
+STEP 1: Analyze the job description carefully. Look for topics across:
+- Company description and mission
+- Sector/industry
+- Team composition and culture
+- Role responsibilities
+- Required skills
+- Nice-to-haves
+- Any specific phrases or values mentioned
+
+STEP 2: For each topic you identify, map it to the candidate's relevant experience.
+
+Don't just list "Required Skills" verbatim. Also look for:
+- Implicit requirements (e.g., "team of PhDs" implies academic background matters)
+- Company values or mission statements
+- Industry-specific context
+- Team structure clues
+
+STEP 3: Select the 3-5 strongest topics where the candidate has the most specific, concrete experience. Prioritize:
+- Topics where concrete metrics or outcomes can be cited
+- Topics that differentiate this candidate from others
+- Topics the company emphasizes most (mentioned multiple times, in headlines, etc.)
+
+OUTPUT FORMAT:
+Return ONLY a JSON array with 3-5 objects. Each object must have:
+- "topic": The job requirement or theme (quote key phrases from the job description)
+- "relevant_experience": Specific experience the candidate has (include metrics where possible)
+
+Example:
+[
+    {{"topic": "Proficiency in Python ecosystem (Pandas, Matplotlib, Scikit-Learn); deploying end-to-end ML models", "relevant_experience": "Built full ML platform at Blink processing 50M+ data points daily; NLP clustering, embeddings, sklearn"}},
+    {{"topic": "sustainability sector", "relevant_experience": "MRes and PhD part of Mathematics of Planet Earth programme; PhD focused on tipping point detection in climate systems"}}
+]
+
+Return ONLY the JSON array, no other text:"""
+
+    success, response = run_claude(prompt, timeout=120)
+
+    if not success:
+        return []
+
+    # Parse JSON response
+    try:
+        # Clean up response - remove markdown code blocks if present
+        cleaned = response.strip()
+        if cleaned.startswith("```"):
+            cleaned = cleaned.split("\n", 1)[1]  # Remove first line
+            if cleaned.endswith("```"):
+                cleaned = cleaned.rsplit("```", 1)[0]
+            cleaned = cleaned.strip()
+
+        topics = json.loads(cleaned)
+        if isinstance(topics, list):
+            return topics
+    except json.JSONDecodeError:
+        pass
+
+    return []
 
 
 def generate_cover_letter_body(
     job_title: str,
     company: str,
     job_description: str,
-    user_background: str
+    user_background: str,
+    cover_letter_topics: list[dict]
 ) -> str:
     """Generate cover letter body text using Claude.
 
@@ -235,33 +311,40 @@ def generate_cover_letter_body(
         company: Company name
         job_description: Full job description
         user_background: User's combined source documents
+        cover_letter_topics: List of dicts with "topic" and "relevant_experience" keys
 
     Returns:
         Cover letter body text (without salutation/closing), or empty string on failure
     """
-    if not job_description or not user_background:
+    if not job_description or not user_background or not cover_letter_topics:
         return ""
 
-    # Truncate to avoid token limits
-    job_desc_truncated = job_description[:8000]
-    background_truncated = user_background[:8000]
+    # Format topics for the prompt
+    topics_formatted = "\n".join(
+        f"- Topic: {t['topic']}\n  Relevant experience: {t['relevant_experience']}"
+        for t in cover_letter_topics
+    )
 
     prompt = f"""Write a cover letter body for this job application.
 
 CANDIDATE BACKGROUND:
-{background_truncated}
+{user_background}
 
 JOB DETAILS:
 Company: {company}
 Position: {job_title}
 Description:
-{job_desc_truncated}
+{job_description}
+
+KEY TOPICS TO ADDRESS (pre-analyzed, use these to structure the letter):
+{topics_formatted}
 
 INSTRUCTIONS:
 - Write ONLY the body paragraphs (3-4 paragraphs)
 - Do NOT include salutation (Dear...) or closing (Yours sincerely...)
-- Be specific about how the candidate's experience matches the role
-- Highlight 2-3 most relevant skills or experiences
+- Use the pre-analyzed topics above to guide what you write about
+- Don't try to hit every topic; focus on 3-4 strong connections
+- Be specific: include metrics and concrete details from the relevant experience
 - Keep it concise (250-350 words)
 - Use contractions (I'm, I've, wasn't) for a natural tone
 - Vary sentence and paragraph length deliberately
