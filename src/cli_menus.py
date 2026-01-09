@@ -472,6 +472,8 @@ class UserOptions:
             ]
             if titles:
                 choices.append({"name": "Remove a title", "value": "remove"})
+            if self._job_title_suggestions:
+                choices.append({"name": "Clear AI suggestions and re-generate", "value": "regenerate_suggestions"})
             choices.append({"name": "← Done", "value": "done"})
 
             action = inquirer.select(message="Action:", choices=choices).execute()
@@ -512,6 +514,9 @@ class UserOptions:
                 ).execute()
                 if to_remove:
                     self.user.remove_desired_job_title(to_remove)
+            elif action == "regenerate_suggestions":
+                self._job_title_suggestions = []
+                self.create_new_job_title_and_location_suggestions()
         self.user.save()
 
     def configure_job_locations(self):
@@ -539,6 +544,8 @@ class UserOptions:
             ]
             if locations:
                 choices.append({"name": "Remove a location", "value": "remove"})
+            if self._job_location_suggestions:
+                choices.append({"name": "Clear AI suggestions and re-generate", "value": "regenerate_suggestions"})
             choices.append({"name": "← Done", "value": "done"})
 
             action = inquirer.select(message="Action:", choices=choices).execute()
@@ -579,6 +586,9 @@ class UserOptions:
                 ).execute()
                 if to_remove:
                     self.user.remove_desired_job_location(to_remove)
+            elif action == "regenerate_suggestions":
+                self._job_location_suggestions = []
+                self.create_new_job_title_and_location_suggestions()
         self.user.save()
 
     def configure_source_documents(self):
