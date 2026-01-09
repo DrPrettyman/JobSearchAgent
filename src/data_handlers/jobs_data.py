@@ -19,7 +19,8 @@ class Job:
         cover_letter_topics: list[dict],
         full_description: str,
         cover_letter_body: str,
-        addressee: str | None
+        addressee: str | None,
+        cover_letter_pdf_path: Path | str | None
     ):
         self.id = _id
         self.company = company
@@ -34,6 +35,12 @@ class Job:
         self.full_description = full_description
         self.cover_letter_body = cover_letter_body
         self.addressee = addressee
+        if cover_letter_pdf_path is not None:
+            if isinstance(cover_letter_pdf_path, str):
+                cover_letter_pdf_path = Path(cover_letter_pdf_path)
+            if not cover_letter_pdf_path.exists():
+                cover_letter_pdf_path = None
+        self._cover_letter_pdf_path = cover_letter_pdf_path
         
     def to_dict(self):
         return {
@@ -48,10 +55,53 @@ class Job:
             "cover_letter_topics": self.cover_letter_topics,
             "full_description": self.full_description,
             "cover_letter_body": self.cover_letter_body,
-            "addressee": self.addressee
+            "addressee": self.addressee,
+            "cover_letter_pdf_path": str(self.cover_letter_pdf_path) if self.cover_letter_pdf_path else None
         }
-
+        
+    def __bool__(self):
+        return self.applied
     
+    @property
+    def cover_letter_pdf_path(self) -> Path | None:
+        return self._cover_letter_pdf_path
+    
+    def set_cover_letter_pdf_path(self, new_path: Path | str | None):
+        if isinstance(new_path, str):
+            new_path = Path(new_path)
+            
+        if new_path is not None:
+            if not new_path.exists():
+                return
+            
+        if self._cover_letter_pdf_path is not None:
+            self._cover_letter_pdf_path.unlink(missing_ok=True)
+
+        self._cover_letter_pdf_path = new_path
+            
+    def cover_letter_full_text(self, name_for_letter: str):
+        """Generate plain text cover letter (no letterhead)."""
+        if self.cover_letter_body:
+            
+            if self.addressee:
+                _addressee = self.addressee
+                _sign_off = "sincerely"
+            else:           
+                _addressee = "hiring team"
+                _sign_off = "faithfully"
+            
+            lines = [
+                f"Dear {_addressee},",
+                "",
+                self.cover_letter_body,
+                "",
+                f"Yours {_sign_off},",
+                "",
+                f"{name_for_letter}"
+            ]
+            return "\n".join(lines)
+        return None
+
 
 class Jobs:
     def __init__(self, file_path: Path):
@@ -79,15 +129,31 @@ class Jobs:
                 cover_letter_topics=_job_data.get("cover_letter_topics", []),
                 full_description=_job_data.get("full_description", ""),
                 cover_letter_body=_job_data.get("cover_letter_body", ""),
-                addressee=_job_data.get("addressee")
+                addressee=_job_data.get("addressee"),
+                cover_letter_pdf_path = _job_data.get("cover_letter_pdf_path")
             )
         self._jobs = jobs
         
     def __iter__(self):
-        return iter(self._jobs.values())
+        return self._jobs.values().__iter__()
 
     def __len__(self):
         return len(self._jobs)
+    
+    def __getitem__(self, key):
+        return self._jobs[key]
+    
+    @property
+    def number_total(self) -> int:
+        return len(self)
+    
+    @property
+    def number_applied(self) -> int:
+        return sum(self)
+    
+    @property
+    def number_not_applied(self) -> int:
+        return len(self) - sum(self)
 
     def to_dict(self):
         return {_id: _job.to_dict() for _id, _job in self._jobs.items()}
