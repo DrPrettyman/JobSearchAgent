@@ -354,15 +354,12 @@ def summarize_source_documents(combined_docs: str) -> str:
     if not combined_docs or len(combined_docs) < 50:
         return ""
 
-    # Truncate to avoid token limits
-    docs_truncated = combined_docs[:12000]
-
     prompt = f"""Summarize this person's professional background in 2-3 sentences.
 Focus on: key skills, experience level, and main areas of expertise.
 Be concise and factual.
 
 Documents:
-{docs_truncated}"""
+{combined_docs}"""
 
     success, response = run_claude(prompt, timeout=60)
     if not success:
@@ -392,15 +389,12 @@ def summarize_online_presence(online_presence: list[dict]) -> str:
     if len(combined) < 50:
         return ""
 
-    # Truncate to avoid token limits
-    combined_truncated = combined[:12000]
-
     prompt = f"""Summarize this person's online presence in 2-3 sentences.
 Focus on: notable projects, public contributions, and professional highlights.
 Be concise and factual.
 
 Online profiles:
-{combined_truncated}"""
+{combined}"""
 
     success, response = run_claude(prompt, timeout=60)
     if not success:
