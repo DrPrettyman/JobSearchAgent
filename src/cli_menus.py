@@ -664,7 +664,12 @@ class UserOptions:
 
         self.user.clear_online_presence()
         for entry in results:
-            self.user.add_online_presence(entry["site"], entry["content"], entry["time_fetched"])
+            self.user.add_online_presence(
+                site=entry["site"], 
+                content=entry["content"], 
+                time_fetched=entry["time_fetched"],
+                success=entry["success"]
+                )
 
         if self.user.online_presence:
             print("Generating summary...")
