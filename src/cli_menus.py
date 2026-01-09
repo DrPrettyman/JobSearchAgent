@@ -3,6 +3,7 @@
 import json
 import re
 from pathlib import Path
+from datetime import datetime
 
 from InquirerPy import inquirer
 from InquirerPy.validator import PathValidator
@@ -293,7 +294,6 @@ class UserOptions:
             word_count = len(self.user.comprehensive_summary.split())
             generated_at = self.user.comprehensive_summary_generated_at
             if generated_at:
-                from datetime import datetime
                 try:
                     dt = datetime.fromisoformat(generated_at.replace("Z", "+00:00"))
                     readable_time = dt.strftime("%b %d, %Y at %I:%M %p")
@@ -320,7 +320,7 @@ class UserOptions:
                 readable_time = dt.strftime("%b %d, %Y at %I:%M %p")
             except ValueError:
                 readable_time = time_fetched
-            fetch_success = entry.get("success")
+            fetch_success = entry.get("fetch_success")
             if fetch_success:
                 _content_len = len(entry.get("content", ""))
                 fetched_summary = f"Fetched {readable_time} ({_content_len} chars)"
@@ -658,12 +658,14 @@ class UserOptions:
                 if add_type == "folder":
                     selected_path = inquirer.filepath(
                         message="Select folder:",
+                        default=str(Path.home()),
                         validate=PathValidator(is_dir=True, message="Must be a directory")
                     ).execute()
                     selected_path = str(Path(selected_path).resolve()) + "/*"
                 else:
                     selected_path = inquirer.filepath(
                         message="Select file:",
+                        default=str(Path.home()),
                         validate=PathValidator(is_file=True, message="Must be a file")
                     ).execute()
                     selected_path = str(Path(selected_path).resolve())
@@ -705,6 +707,7 @@ class UserOptions:
         if action == "custom":
             new_path = inquirer.filepath(
                 message="Select output directory:",
+                default=str(Path.home()),
                 validate=PathValidator(is_dir=True, message="Must be a directory")
             ).execute()
             self.user.cover_letter_output_dir = str(Path(new_path).resolve())

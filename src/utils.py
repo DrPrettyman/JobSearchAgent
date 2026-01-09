@@ -358,6 +358,8 @@ def summarize_source_documents(combined_docs: str) -> str:
 Focus on: key skills, experience level, and main areas of expertise.
 Be concise and factual.
 
+IMPORTANT: Start directly with the summary. Do not include any preamble like "Based on..." or "Summary:" or similar. Just write the summary text.
+
 Documents:
 {combined_docs}"""
 
@@ -365,7 +367,12 @@ Documents:
     if not success:
         return ""
 
-    return response.strip()
+    # Strip any preamble that slipped through
+    response = response.strip()
+    for prefix in ["**Summary:**", "Summary:", "**Summary**"]:
+        if response.startswith(prefix):
+            response = response[len(prefix):].strip()
+    return response
 
 
 def summarize_online_presence(online_presence: list[dict]) -> str:
@@ -393,6 +400,8 @@ def summarize_online_presence(online_presence: list[dict]) -> str:
 Focus on: notable projects, public contributions, and professional highlights.
 Be concise and factual.
 
+IMPORTANT: Start directly with the summary. Do not include any preamble like "Based on..." or "Summary:" or similar. Just write the summary text.
+
 Online profiles:
 {combined}"""
 
@@ -400,4 +409,9 @@ Online profiles:
     if not success:
         return ""
 
-    return response.strip()
+    # Strip any preamble that slipped through
+    response = response.strip()
+    for prefix in ["**Summary:**", "Summary:", "**Summary**"]:
+        if response.startswith(prefix):
+            response = response[len(prefix):].strip()
+    return response
