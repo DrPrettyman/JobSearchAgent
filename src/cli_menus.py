@@ -315,12 +315,17 @@ class UserOptions:
         for entry in self.user.online_presence:
             site = entry.get("site", "Unknown")
             time_fetched = entry.get("time_fetched", "")
+            try:
+                dt = datetime.fromisoformat(time_fetched.replace("Z", "+00:00"))
+                readable_time = dt.strftime("%b %d, %Y at %I:%M %p")
+            except ValueError:
+                readable_time = time_fetched
             fetch_success = entry.get("success")
             if fetch_success:
                 _content_len = len(entry.get("content", ""))
-                fetched_summary = f"Fetched: {time_fetched[:10]} ({_content_len} chars)"
+                fetched_summary = f"Fetched {readable_time} ({_content_len} chars)"
             else:
-                fetched_summary = f"Unable to fetch (attempted: {time_fetched})"
+                fetched_summary = f"Unable to fetch (attempted {readable_time})"
             print(f"  {Colors.GREEN}•{Colors.RESET} {hyperlink(site)} {Colors.DIM}{fetched_summary}{Colors.RESET}")
         other_websites = [s for s in self.user.all_websites if s not in self.user.all_online_presence_sites]
         for site in other_websites:
