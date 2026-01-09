@@ -463,7 +463,7 @@ class UserOptions:
             if self._job_title_suggestions:
                 print_header("Suggested Job Titles")
                 suggestions = "', '".join(self._job_title_suggestions)
-                print(f"{Colors.YELLOW}{suggestions}{Colors.RESET}")
+                print(f"  {Colors.YELLOW}{suggestions}{Colors.RESET}")
 
             choices = [
                 {"name": "Add a title manually", "value": "add"},
@@ -527,7 +527,16 @@ class UserOptions:
             else:
                 print(f"  {Colors.DIM}No job locations configured{Colors.RESET}\n")
 
-            choices = [{"name": "Add a location", "value": "add"}]
+            if self._job_location_suggestions:
+                print_header("Suggested Locations")
+                suggestions = "', '".join(self._job_location_suggestions)
+                print(f"  {Colors.YELLOW}{suggestions}{Colors.RESET}")
+
+            choices = [
+                {"name": "Add a location manually", "value": "add"},
+                {"name": "Add a location from AI suggestions", "value": "use_suggestions"},
+                {"name": "Generate more suggestions", "value": "generate_suggestions"}
+            ]
             if locations:
                 choices.append({"name": "Remove a location", "value": "remove"})
             choices.append({"name": "← Done", "value": "done"})
@@ -540,6 +549,29 @@ class UserOptions:
                 new_loc = inquirer.text(message="Enter job location:").execute()
                 if new_loc:
                     self.user.add_desired_job_location(new_loc)
+            elif action == "use_suggestions":
+                for _ in range(3):
+                    if not self._job_location_suggestions:
+                        self.create_new_job_title_and_location_suggestions()
+                if not self._job_location_suggestions:
+                    print(f"{Colors.RED}Could not generate suggestions{Colors.RESET}")
+                if self._job_location_suggestions:
+                    choices = [
+                        {"name": s, "value": s, "enabled": False}
+                        for s in self._job_location_suggestions
+                    ]
+                    selected = inquirer.checkbox(
+                        message="Select locations to add:",
+                        choices=choices,
+                    ).execute()
+                    for loc in selected:
+                        self.user.add_desired_job_location(loc)
+                        self._job_location_suggestions.remove(loc)
+            elif action == "generate_suggestions":
+                _n_suggestions_before = len(self._job_location_suggestions)
+                self.create_new_job_title_and_location_suggestions()
+                _n_new = len(self._job_location_suggestions) - _n_suggestions_before
+                print(f"{Colors.GREEN}Added {_n_new} new suggestions.{Colors.RESET}")
             elif action == "remove":
                 to_remove = inquirer.select(
                     message="Select location to remove:",
