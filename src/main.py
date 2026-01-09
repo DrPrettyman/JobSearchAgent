@@ -3,7 +3,7 @@ import argparse
 from pathlib import Path
 
 from data_handlers import User
-from cli_menus import main_menu, first_time_setup
+from cli_menus import UserOptions
 
 DATA_DIR = Path.home() / ".JobSearch"
 if not DATA_DIR.exists():
@@ -27,9 +27,10 @@ def get_or_create_user(user_id: str):
 
 def main(user_id: str):
     user, is_new_user = get_or_create_user(user_id)
+    menu = UserOptions(user)
     if is_new_user:
-        first_time_setup(user)
-    main_menu(user)
+        menu.first_time_setup()
+    menu.main_menu()
 
 
 if __name__ == "__main__":
