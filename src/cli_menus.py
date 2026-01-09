@@ -18,6 +18,8 @@ from cli_utils import (
     print_section,
     print_field,
     print_list,
+    print_box,
+    print_thick_line,
     hyperlink,
     display_job_card,
     display_job_detail
@@ -150,6 +152,10 @@ class JobOptions:
                     choices.append({"name": "📄 Retry PDF cover letter export", "value": "cover_letter_pdf_export"})
             
             choices.append({"name": "← Back to jobs list", "value": "back"})
+
+            print()
+            print_thick_line()
+            print()
 
             action = inquirer.select(
                 message="What would you like to do?",
@@ -332,9 +338,11 @@ class UserOptions:
             print(f"  {Colors.GREEN}•{Colors.RESET} {hyperlink(site)} {Colors.DIM}Not fetched{Colors.RESET}")
             
         if self.user.source_document_summary:
-            print(f"\n  {Colors.DIM}Document Summary:{Colors.RESET} {self.user.source_document_summary}")
+            print()
+            print_box("Document Summary", self.user.source_document_summary)
         if self.user.online_presence_summary:
-            print(f"\n  {Colors.DIM}Online Summary:  {Colors.RESET} {self.user.online_presence_summary}")
+            print()
+            print_box("Online Summary", self.user.online_presence_summary)
         print()
 
     def configure_name(self):
@@ -1015,6 +1023,9 @@ Return ONLY a JSON array of 30 query strings, no other text:
         while True:
             clear_screen()
             self.display_user_info()
+            print()
+            print_thick_line()
+            print()
 
             action = inquirer.select(
                 message="What would you like to do?",
@@ -1071,6 +1082,10 @@ Return ONLY a JSON array of 30 query strings, no other text:
                 else:
                     return
 
+            print()
+            print_thick_line()
+            print()
+
             action = inquirer.select(
                 message="What would you like to do?",
                 choices=[
@@ -1114,6 +1129,10 @@ Return ONLY a JSON array of 30 query strings, no other text:
             job_choices.append({"name": "─" * 30, "value": None, "disabled": ""})
             job_choices.append({"name": "← Back to main menu", "value": "back"})
 
+            print()
+            print_thick_line()
+            print()
+
             action = inquirer.select(
                 message="Select a job to view details:",
                 choices=job_choices,
@@ -1137,6 +1156,10 @@ Return ONLY a JSON array of 30 query strings, no other text:
             print(ASCII_ART_JOBSEARCH)
             
             print_header(f"Welcome {self.user.name}")
+
+            print()
+            print_thick_line()
+            print()
 
             action = inquirer.select(
                 message="Select an option:",
