@@ -402,8 +402,8 @@ class UserOptions:
             print_header("Websites")
             sites = self.user.websites
             if sites:
-                for s in sites:
-                    print(f"  {Colors.GREEN}•{Colors.RESET} {s}")
+                for site in sites:
+                    print(f"  {Colors.GREEN}•{Colors.RESET} {site}")
                 print()
             else:
                 print(f"  {Colors.DIM}No websites configured{Colors.RESET}\n")
@@ -459,10 +459,16 @@ class UserOptions:
                 print()
             else:
                 print(f"  {Colors.DIM}No job titles configured{Colors.RESET}\n")
+                
+            if self._job_title_suggestions:
+                print_header("Suggested Job Titles")
+                suggestions = "', '".join(self._job_title_suggestions)
+                print(f"{Colors.YELLOW}{suggestions}{Colors.RESET}")
 
             choices = [
                 {"name": "Add a title manually", "value": "add"},
-                {"name": "Add a title from AI suggestions", "value": "add"}
+                {"name": "Add a title from AI suggestions", "value": "use_suggestions"},
+                {"name": "Generate more suggestions", "value": "generate_suggestions"}
             ]
             if titles:
                 choices.append({"name": "Remove a title", "value": "remove"})
@@ -476,6 +482,29 @@ class UserOptions:
                 new_title = inquirer.text(message="Enter job title:").execute()
                 if new_title:
                     self.user.add_desired_job_title(new_title)
+            elif action == "use_suggestions":
+                for _ in range(3):
+                    if not self._job_title_suggestions:
+                        self.create_new_job_title_and_location_suggestions()
+                if not self._job_title_suggestions:
+                    print(f"{Colors.RED}Could not generate suggestions{Colors.RESET}")
+                if self._job_title_suggestions:
+                    choices = [
+                        {"name": s, "value": s, "enabled": False}
+                        for s in self._job_title_suggestions
+                    ]
+                    selected = inquirer.checkbox(
+                        message="Select titles to add:",
+                        choices=choices,
+                    ).execute()
+                    for title in selected:
+                        self.user.add_desired_job_title(title)
+                        self._job_title_suggestions.remove(title)
+            elif action == "generate_suggestions":
+                _n_suggestions_before = len(self._job_title_suggestions)
+                self.create_new_job_title_and_location_suggestions()
+                _n_new = len(self._job_title_suggestions) - _n_suggestions_before
+                print(f"{Colors.GREEN}Added {_n_new} new suggestions.{Colors.RESET}")
             elif action == "remove":
                 to_remove = inquirer.select(
                     message="Select title to remove:",
@@ -684,13 +713,24 @@ class UserOptions:
         self.user.save()
         print(f"Fetched {len(results)} profiles.")
 
-    def suggest_from_documents(self):
+    def generate_job_title_and_location_suggestions(self):
         """Use Claude to suggest job titles and locations from source documents."""
         user_background = self.user.comprehensive_summary or combined_documents_as_string(self.user.combined_source_documents)
-
         if not user_background:
             print("No source documents or comprehensive summary available.")
             return
+        
+        existing_titles_list = sorted(set(self.user.desired_job_titles) | set(self._job_title_suggestions))
+        if existing_titles_list:
+            existing_titles = ", ".join(f"'{t}'" for t in existing_titles_list)
+        else:
+            existing_titles = "None."
+            
+        existing_locations_list = sorted(set(self.user.desired_job_locations) | set(self._job_location_suggestions))
+        if existing_locations_list:
+            existing_locations = ", ".join(f"'{t}'" for t in existing_locations_list)
+        else:
+            existing_locations = "None."
 
         print("Analyzing your background to suggest job titles and locations...")
 
@@ -700,6 +740,9 @@ class UserOptions:
 
 Respond ONLY with valid JSON in this exact format, no other text:
 {{"job_titles": ["Title 1", "Title 2"], "job_locations": ["Location 1", "Location 2"]}}
+
+Existing titles: {existing_titles}
+Existing locations: {existing_locations}
 
 Background:
 {user_background}"""
@@ -715,28 +758,38 @@ Background:
             suggestions = json.loads(json_str)
             suggested_titles = suggestions.get("job_titles", [])
             suggested_locations = suggestions.get("job_locations", [])
-
-            if suggested_titles:
-                selected_titles = inquirer.checkbox(
-                    message="Select job titles to add:",
-                    choices=[{"name": t, "value": t, "enabled": True} for t in suggested_titles],
-                ).execute()
-                for title in selected_titles:
-                    self.user.add_desired_job_title(title)
-
-            if suggested_locations:
-                selected_locations = inquirer.checkbox(
-                    message="Select job locations to add:",
-                    choices=[{"name": loc, "value": loc, "enabled": True} for loc in suggested_locations],
-                ).execute()
-                for loc in selected_locations:
-                    self.user.add_desired_job_location(loc)
-
-            self.user.save()
-
+            return {"titles": suggested_titles, "locations": suggested_locations}
         except json.JSONDecodeError:
             print("Could not parse Claude's response.")
+            return {"titles": [], "locations": []}
 
+        # if suggested_titles:
+        #     selected_titles = inquirer.checkbox(
+        #         message="Select job titles to add:",
+        #         choices=[{"name": t, "value": t, "enabled": True} for t in suggested_titles],
+        #     ).execute()
+        #     for title in selected_titles:
+        #         self.user.add_desired_job_title(title)
+
+        # if suggested_locations:
+        #     selected_locations = inquirer.checkbox(
+        #         message="Select job locations to add:",
+        #         choices=[{"name": loc, "value": loc, "enabled": True} for loc in suggested_locations],
+        #     ).execute()
+        #     for loc in selected_locations:
+        #         self.user.add_desired_job_location(loc)
+
+        # self.user.save()
+
+    def create_new_job_title_and_location_suggestions(self):
+        results = self.generate_job_title_and_location_suggestions()
+        
+        new_titles = [t for t in results.get("titles", []) if t not in self.user.desired_job_titles]
+        self._job_title_suggestions = sorted(set(new_titles + self._job_title_suggestions))
+        
+        new_locations = [t for t in results.get("locations", []) if t not in self.user.desired_job_locations]
+        self._job_location_suggestions = sorted(set(new_locations + self._job_location_suggestions))
+    
     def generate_comprehensive_summary(self):
         """Generate a comprehensive summary combining all user information."""
         source_docs = combined_documents_as_string(self.user.combined_source_documents)
@@ -885,7 +938,7 @@ Return ONLY a JSON array of 30 query strings, no other text:
                     {"name": "Edit credentials", "value": self.configure_credentials},
                     {"name": "Edit LinkedIn", "value": self.configure_linkedin},
                     {"name": "Edit websites", "value": self.configure_websites},
-                    {"name": "Edit source documents", "value": self.configure_source_documents},
+                    {"name": "Edit source documents (CV etc.)", "value": self.configure_source_documents},
                     {"name": "Edit job titles", "value": self.configure_job_titles},
                     {"name": "Edit job locations", "value": self.configure_job_locations},
                     {"name": "Edit cover letter output directory", "value": self.configure_cover_letter_output_dir},
