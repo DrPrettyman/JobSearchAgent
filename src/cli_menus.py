@@ -8,6 +8,7 @@ from InquirerPy import inquirer
 from InquirerPy.validator import PathValidator
 
 from data_handlers import User, Job, Jobs
+from data_handlers.utils import datetime_iso
 from cli_utils import (
     Colors,
     ASCII_ART_JOBSEARCH,
@@ -276,10 +277,35 @@ class UserOptions:
         print_header("User Profile")
 
         # Basic Info
+        _not_set = f"{Colors.RED}Not set{Colors.RESET}"
         print_section("Basic Information")
-        print_field("Name", self.user.name_with_credentials if self.user.name else "")
-        print_field("Email", self.user.email)
-        print_field("LinkedIn", self.user.linkedin_url if self.user.linkedin_extension else "")
+        print_field("Name", self.user.name_with_credentials if self.user.name else _not_set)
+        print_field("Email", self.user.email if self.user.email else _not_set)
+        print_field("LinkedIn", self.user.linkedin_url if self.user.linkedin_extension else _not_set)
+        
+        desired_title_list = ", ".join(f"'{s}'" for s in self.user.desired_job_titles) if self.user.desired_job_titles else _not_set
+        desired_locations_list = ", ".join(f"'{s}'" for s in self.user.desired_job_locations) if self.user.desired_job_locations else _not_set
+        print_field("Desired Job Titles", desired_title_list)
+        print_field("Desired Job Locations", desired_locations_list)
+
+        # Comprehensive Summary field
+        if self.user.comprehensive_summary:
+            word_count = len(self.user.comprehensive_summary.split())
+            generated_at = self.user.comprehensive_summary_generated_at
+            if generated_at:
+                from datetime import datetime
+                try:
+                    dt = datetime.fromisoformat(generated_at.replace("Z", "+00:00"))
+                    readable_time = dt.strftime("%b %d, %Y at %I:%M %p")
+                except ValueError:
+                    readable_time = generated_at
+                summary_value = f"{word_count} words, generated {readable_time}"
+            else:
+                summary_value = f"{word_count} words"
+        else:
+            summary_value = f"{Colors.RED}Not generated{Colors.RESET}"
+        print_field("Comprehensive Summary", summary_value)
+
         print()
 
         # Information sources
@@ -289,38 +315,21 @@ class UserOptions:
         for entry in self.user.online_presence:
             site = entry.get("site", "Unknown")
             time_fetched = entry.get("time_fetched", "")
-            if entry.get("success"):
+            fetch_success = entry.get("success")
+            if fetch_success:
                 _content_len = len(entry.get("content", ""))
                 fetched_summary = f"Fetched: {time_fetched[:10]} ({_content_len} chars)"
             else:
                 fetched_summary = f"Unable to fetch (attempted: {time_fetched})"
             print(f"  {Colors.GREEN}•{Colors.RESET} {hyperlink(site)} {Colors.DIM}{fetched_summary}{Colors.RESET}")
+        other_websites = [s for s in self.user.all_websites if s not in self.user.all_online_presence_sites]
+        for site in other_websites:
+            print(f"  {Colors.GREEN}•{Colors.RESET} {hyperlink(site)} {Colors.DIM}Not fetched{Colors.RESET}")
             
-        
         if self.user.source_document_summary:
             print(f"\n  {Colors.DIM}Document Summary:{Colors.RESET} {self.user.source_document_summary}")
         if self.user.online_presence_summary:
             print(f"\n  {Colors.DIM}Online Summary:  {Colors.RESET} {self.user.online_presence_summary}")
-        print()
-
-        # Comprehensive Summary
-        print_section("Comprehensive Summary")
-        if self.user.comprehensive_summary:
-            preview = self.user.comprehensive_summary[:300]
-            if len(self.user.comprehensive_summary) > 300:
-                preview += "..."
-            print(f"  {Colors.GREEN}✓ Generated{Colors.RESET} ({len(self.user.comprehensive_summary)} chars)")
-            print(f"  {Colors.DIM}{preview}{Colors.RESET}")
-        else:
-            print(f"  {Colors.YELLOW}○ Not generated{Colors.RESET}")
-            print(f"  {Colors.DIM}Generate to improve cover letter quality{Colors.RESET}")
-        print()
-        
-        # Job Preferences
-        print_section("Job Preferences")
-        print_list("Desired Titles", self.user.desired_job_titles)
-        print()
-        print_list("Desired Locations", self.user.desired_job_locations)
         print()
 
     def configure_name(self):
@@ -451,7 +460,7 @@ class UserOptions:
         """Configure desired job titles."""
         while True:
             clear_screen()
-            print_header("Job Titles")
+            print_header("Desired Job Titles")
             titles = self.user.desired_job_titles
             if titles:
                 for t in titles:
@@ -461,10 +470,11 @@ class UserOptions:
                 print(f"  {Colors.DIM}No job titles configured{Colors.RESET}\n")
                 
             if self._job_title_suggestions:
-                print_header("Suggested Job Titles")
-                suggestions = "', '".join(self._job_title_suggestions)
+                print_section("Suggested Job Titles")
+                suggestions = ", ".join(f"'{s}'" for s in self._job_title_suggestions)
                 print(f"  {Colors.YELLOW}{suggestions}{Colors.RESET}")
-
+                print()
+                
             choices = [
                 {"name": "Add a title manually", "value": "add"},
                 {"name": "Add a title from AI suggestions", "value": "use_suggestions"},
@@ -523,7 +533,7 @@ class UserOptions:
         """Configure desired job locations."""
         while True:
             clear_screen()
-            print_header("Job Locations")
+            print_header("Desired Job Locations")
             locations = self.user.desired_job_locations
             if locations:
                 for loc in locations:
@@ -533,10 +543,11 @@ class UserOptions:
                 print(f"  {Colors.DIM}No job locations configured{Colors.RESET}\n")
 
             if self._job_location_suggestions:
-                print_header("Suggested Locations")
-                suggestions = "', '".join(self._job_location_suggestions)
+                print_section("Suggested Locations")
+                suggestions = ", ".join(f"'{s}'"for s in self._job_location_suggestions)
                 print(f"  {Colors.YELLOW}{suggestions}{Colors.RESET}")
-
+                print()
+                
             choices = [
                 {"name": "Add a location manually", "value": "add"},
                 {"name": "Add a location from AI suggestions", "value": "use_suggestions"},
@@ -699,6 +710,48 @@ class UserOptions:
             self.user.save()
             print(f"Reset to default: {self.user.cover_letter_output_dir}")
 
+    def configure_ai_credentials(self):
+        """Configure AI backend credentials."""
+        clear_screen()
+        print_header("AI Credentials")
+
+        current = self.user.ai_credentials
+        method = current.get("method", "claude_local")
+        if method == "claude_local":
+            print(f"  {Colors.DIM}Current: Claude CLI (local){Colors.RESET}\n")
+        else:
+            api_key = current.get("api_key", "")
+            masked_key = f"{api_key[:8]}...{api_key[-4:]}" if len(api_key) > 12 else "***"
+            print(f"  {Colors.DIM}Current: OpenAI API ({masked_key}){Colors.RESET}\n")
+
+        choices = [
+            {"name": "Claude CLI (local)", "value": "claude_local"},
+            {"name": "OpenAI API", "value": "open_ai"},
+        ]
+
+        selected = inquirer.select(
+            message="Select AI backend:",
+            choices=choices,
+            default=method,
+        ).execute()
+
+        if selected == "claude_local":
+            self.user.ai_credentials = {"method": "claude_local"}
+        else:
+            current_key = current.get("api_key", "") if method == "open_ai" else ""
+            api_key = inquirer.secret(
+                message="Enter OpenAI API key:",
+                default=current_key,
+            ).execute()
+            if api_key:
+                self.user.ai_credentials = {"method": "open_ai", "api_key": api_key}
+            else:
+                print(f"{Colors.YELLOW}No API key provided, keeping previous setting.{Colors.RESET}")
+                return
+
+        self.user.save()
+        print(f"AI credentials updated.")
+
     def refresh_source_documents(self):
         """Re-read source documents and regenerate summary."""
         if not self.user.source_document_paths:
@@ -805,24 +858,6 @@ Background:
             print("Could not parse Claude's response.")
             return {"titles": [], "locations": []}
 
-        # if suggested_titles:
-        #     selected_titles = inquirer.checkbox(
-        #         message="Select job titles to add:",
-        #         choices=[{"name": t, "value": t, "enabled": True} for t in suggested_titles],
-        #     ).execute()
-        #     for title in selected_titles:
-        #         self.user.add_desired_job_title(title)
-
-        # if suggested_locations:
-        #     selected_locations = inquirer.checkbox(
-        #         message="Select job locations to add:",
-        #         choices=[{"name": loc, "value": loc, "enabled": True} for loc in suggested_locations],
-        #     ).execute()
-        #     for loc in selected_locations:
-        #         self.user.add_desired_job_location(loc)
-
-        # self.user.save()
-
     def create_new_job_title_and_location_suggestions(self):
         results = self.generate_job_title_and_location_suggestions()
         
@@ -906,6 +941,7 @@ The summary should be thorough enough to write tailored cover letters without ne
         response = re.sub(r"(?<=[0-9A-Za-z])([.?!\"\']?)[^0-9A-Za-z]+$", r"\1", response)
 
         self.user.comprehensive_summary = response
+        self.user.comprehensive_summary_generated_at = datetime_iso()
         self.user.save()
         print("Comprehensive summary generated and saved.")
 
@@ -984,6 +1020,7 @@ Return ONLY a JSON array of 30 query strings, no other text:
                     {"name": "Edit job titles", "value": self.configure_job_titles},
                     {"name": "Edit job locations", "value": self.configure_job_locations},
                     {"name": "Edit cover letter output directory", "value": self.configure_cover_letter_output_dir},
+                    {"name": "Edit AI credentials", "value": self.configure_ai_credentials},
                     {"name": "─" * 30, "value": None, "disabled": ""},
                     {"name": "Refresh source documents", "value": self.refresh_source_documents},
                     {"name": "Refresh online presence", "value": self.refresh_online_presence},

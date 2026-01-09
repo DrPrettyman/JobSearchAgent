@@ -7,7 +7,7 @@ from utils import run_claude, scrape, extract_url_slug
 from data_handlers.utils import datetime_iso
 
 
-def fetch_linkedin_profile(linkedin_url: str) -> str:
+def fetch_linkedin_profile(linkedin_url: str) -> str | None:
     """Fetch and extract professional info from a LinkedIn profile using Claude WebFetch.
 
     Args:
@@ -36,16 +36,16 @@ Return the information in a clean, readable format. If you cannot access the pro
 
     if not success:
         print(f"  LinkedIn fetch failed: {response}")
-        return ""
+        return None
 
     response = response.strip()
     if response == "NONE" or len(response) < 50:
-        return ""
+        return None
 
     return response
 
 
-def fetch_github_profile(github_url: str) -> str:
+def fetch_github_profile(github_url: str) -> str | None:
     """Fetch GitHub profile info via API and summarize with Claude.
 
     Args:
@@ -56,7 +56,7 @@ def fetch_github_profile(github_url: str) -> str:
     """
     username = extract_url_slug(github_url)
     if not username:
-        return ""
+        return None
 
     headers = {
         'User-Agent': 'JobSearch-App/1.0',
@@ -73,7 +73,7 @@ def fetch_github_profile(github_url: str) -> str:
         user_data = json.loads(user_response.read().decode('utf-8'))
     except Exception as e:
         print(f"  Could not fetch GitHub user: {e}")
-        return ""
+        return None
 
     # Fetch repos
     repos_data = []
@@ -215,7 +215,6 @@ def fetch_online_presence(urls: list[str]) -> list[dict]:
             })
 
         if content:
-            
             print(f"  Got {len(content)} chars")
         else:
             print("  No content extracted")

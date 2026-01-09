@@ -30,7 +30,8 @@ class User:
                         "websites": [],
                         "source_document_paths": [],
                         "desired_job_titles": [],
-                        "desired_job_locations": []
+                        "desired_job_locations": [],
+                        "ai_credentials": {"method": "claude_local"}
                     },
                     f
                 )
@@ -50,8 +51,10 @@ class User:
         self._source_document_summary = user_info.get("source_document_summary", "")
         self._online_presence_summary = user_info.get("online_presence_summary", "")
         self._comprehensive_summary = user_info.get("comprehensive_summary", "")
+        self._comprehensive_summary_generated_at = user_info.get("comprehensive_summary_generated_at", "")
         self._combined_source_documents = user_info.get("combined_source_documents", [])
         self._cover_letter_output_dir = user_info.get("cover_letter_output_dir", "")
+        self._ai_credentials = user_info.get("ai_credentials", {"method": "claude_local"})
         
     def to_dict(self) -> dict:
         return {
@@ -67,12 +70,17 @@ class User:
             "source_document_summary": self._source_document_summary,
             "online_presence_summary": self._online_presence_summary,
             "comprehensive_summary": self._comprehensive_summary,
+            "comprehensive_summary_generated_at": self._comprehensive_summary_generated_at,
             "combined_source_documents": self._combined_source_documents,
-            "cover_letter_output_dir": self._cover_letter_output_dir
+            "cover_letter_output_dir": self._cover_letter_output_dir,
+            "ai_credentials": self._ai_credentials
         }    
     
     def is_new_user(self):
-        for value in self.to_dict().values():
+        data = self.to_dict()
+        # Exclude ai_credentials from check since it always has a default value
+        data.pop("ai_credentials", None)
+        for value in data.values():
             if value:
                 return False
         return True
@@ -184,6 +192,14 @@ class User:
         self._comprehensive_summary = value
 
     @property
+    def comprehensive_summary_generated_at(self) -> str:
+        return self._comprehensive_summary_generated_at
+
+    @comprehensive_summary_generated_at.setter
+    def comprehensive_summary_generated_at(self, value: str):
+        self._comprehensive_summary_generated_at = value
+
+    @property
     def cover_letter_output_dir(self) -> Path:
         """Returns cover letter output directory, creating it if needed."""
         if self._cover_letter_output_dir:
@@ -197,6 +213,18 @@ class User:
     def cover_letter_output_dir(self, value: str):
         self._cover_letter_output_dir = value
 
+    @property
+    def ai_credentials(self) -> dict:
+        """Returns AI credentials configuration.
+
+        Either {"method": "claude_local"} or {"method": "open_ai", "api_key": "..."}
+        """
+        return self._ai_credentials
+
+    @ai_credentials.setter
+    def ai_credentials(self, value: dict):
+        self._ai_credentials = value
+
     def add_online_presence(self, site: str, content: str, time_fetched: str, success: bool):
         """Add or update online presence entry for a site."""
         # Remove existing entry for this site if present
@@ -207,6 +235,10 @@ class User:
             "fetch_success": success,
             "content": content
         })
+        
+    @property
+    def all_online_presence_sites(self):
+        return [entry["site"] for entry in self._online_presence]
 
     def clear_online_presence(self):
         """Clear all online presence data."""
