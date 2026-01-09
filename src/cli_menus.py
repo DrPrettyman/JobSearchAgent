@@ -1,6 +1,7 @@
 """CLI menu functions for JobSearch application."""
 
 import json
+import re
 from pathlib import Path
 
 from InquirerPy import inquirer
@@ -772,23 +773,21 @@ ONLINE PRESENCE (LinkedIn, GitHub, portfolio):
 {online_content}
 
 Create a COMPREHENSIVE summary that includes:
-1. Full name and credentials
-2. Contact information (if available)
-3. Professional summary/headline
-4. COMPLETE work experience with:
+1. Professional summary/headline
+2. COMPLETE work experience with:
    - Company names
    - Job titles
    - Employment dates (month/year to month/year)
    - Key responsibilities and achievements
-5. COMPLETE academic background with:
+3. COMPLETE academic background with:
    - Institutions
    - Degrees and fields of study
-   - Graduation dates
+   - Graduation dates (if available)
    - Notable achievements (publications, awards)
-6. Technical skills (categorized)
-7. Certifications and credentials
-8. Languages (if mentioned)
-9. Notable projects or portfolio items
+4. Technical skills (categorized)
+5. Certifications and credentials
+6. Languages (if mentioned)
+7. Notable projects or portfolio items
 
 IMPORTANT:
 - Include ALL dates mentioned (employment periods, graduation years, etc.)
@@ -798,16 +797,27 @@ IMPORTANT:
 - Maintain chronological order for experience and education
 - If information is missing or unclear, note it rather than guessing
 
-Return the summary in a clean, structured text format (not JSON).
+Return the summary in a clean, structured markdown text format (not JSON). Begin with the heading '# PROFESSIONAL SUMMARY'.
 The summary should be thorough enough to write tailored cover letters without needing the original documents."""
 
         success, response = run_claude(prompt, timeout=300)
 
-        if not success:
+        if not success or not isinstance(response, str):
             print(f"Failed to generate summary: {response}")
             return
+        response = response.strip()
+        if not response:
+            print(f"Failed to generate summary")
+            return
 
-        self.user.comprehensive_summary = response.strip()
+        # Truncate to start at "# PROFESSIONAL SUMMARY" if present (removes preamble)
+        heading = "# PROFESSIONAL SUMMARY"
+        if heading in response:
+            response = response[response.index(heading):]
+            
+        response = re.sub(r"(?<=[0-9A-Za-z])([.?!\"\']?)[^0-9A-Za-z]+$", r"\1", response)
+
+        self.user.comprehensive_summary = response
         self.user.save()
         print("Comprehensive summary generated and saved.")
 
