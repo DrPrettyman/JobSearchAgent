@@ -268,7 +268,7 @@ class UserOptions:
         print(f"  {Colors.GREEN}✓ Your profile is ready!{Colors.RESET}")
         print(f"  {Colors.DIM}You can now search for jobs from the main menu.{Colors.RESET}\n")
 
-    def display(self):
+    def display_user_info(self):
         """Display user information in a formatted view."""
         print_header("User Profile")
 
@@ -859,7 +859,7 @@ Return ONLY a JSON array of 30 query strings, no other text:
         """Show user info and provide edit options."""
         while True:
             clear_screen()
-            self.display()
+            self.display_user_info()
 
             action = inquirer.select(
                 message="What would you like to do?",
