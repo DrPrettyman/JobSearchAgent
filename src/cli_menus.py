@@ -34,7 +34,7 @@ from utils import (
     extract_json_from_response,
 )
 from online_presence import fetch_online_presence
-from search_jobs import search
+from search_jobs import JobSearcher
 from cover_letter_writer import LetterWriter, generate_cover_letter_topics, generate_cover_letter_body
 
 # Ordered by precedence (most prestigious first)
@@ -49,20 +49,26 @@ class JobOptions:
         self.user: User = user
         self.job: Job = user.job_handler[job_id]
         
+        self._letter_compiler = None
+        
+    @property
+    def letter_compiler(self):
+        if self._letter_compiler is None:
+            self._letter_compiler = LetterWriter(
+                company=self.job.company,
+                title=self.job.title,
+                cover_letter_body=self.job.cover_letter_body,
+                user_name=self.user.name,
+                user_email=self.user.email,
+                user_linkedin_ext=self.user.linkedin_extension,
+                user_credentials=self.user.credentials,
+                user_website=self.user.websites[0] if self.user.websites else None,
+                addressee=self.job.addressee
+            )
+        return self._letter_compiler
+        
     def export_pdf_cover_letter(self):
-        writer = LetterWriter(
-            company=self.job.company,
-            title=self.job.title,
-            cover_letter_body=self.job.cover_letter_body,
-            user_name=self.user.name,
-            user_email=self.user.email,
-            user_linkedin_ext=self.user.linkedin_extension,
-            user_credentials=self.user.credentials,
-            user_website=self.user.websites[0] if self.user.websites else None,
-            addressee=self.job.addressee
-        )
-               
-        pdf_path = writer.save_pdf(output_dir=self.user.cover_letter_output_dir)
+        pdf_path = self.letter_compiler.save_pdf(output_dir=self.user.cover_letter_output_dir)
         if pdf_path is None:
             print(f"{Colors.RED}Failed to compile cover letter as PDF file.{Colors.RESET}\n")
             return
@@ -203,6 +209,14 @@ class UserOptions:
         self.user = user
         self._job_title_suggestions = []
         self._job_location_suggestions = []
+        
+        self._job_searcher = None
+        
+    @property
+    def job_searcher(self):
+        if self._job_searcher is None:
+            self._job_searcher = JobSearcher(user=self.user)
+        return self._job_searcher
         
     def first_time_setup(self):
         """Guided setup flow for first-time users."""
@@ -1164,7 +1178,7 @@ Return ONLY a JSON array of 30 query strings, no other text:
                     message="Fetch full job descriptions? (slower but more complete)",
                     default=True
                 ).execute()
-                search(self.user, fetch_descriptions=fetch_desc)
+                self.job_searcher.search(self.user, fetch_descriptions=fetch_desc)
                 print()
   
     def jobs_menu(self):
