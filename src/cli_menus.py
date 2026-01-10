@@ -966,6 +966,62 @@ The summary should be thorough enough to write tailored cover letters without ne
             preview += "..."
         print(f"\nPreview:\n{preview}")
 
+    def view_comprehensive_summary(self):
+        """View the full comprehensive summary."""
+        clear_screen()
+        if not self.user.comprehensive_summary:
+            print(f"{Colors.YELLOW}No comprehensive summary generated yet.{Colors.RESET}")
+            print("Use 'Generate comprehensive summary' to create one.")
+            input("\nPress Enter to continue...")
+            return
+
+        print_header("Comprehensive Summary")
+        print(self.user.comprehensive_summary)
+        print()
+        print_thick_line()
+        input("\nPress Enter to continue...")
+
+    def review_queries(self):
+        """Review and remove search queries with checkbox selection."""
+        clear_screen()
+        print_header("Review Search Queries")
+
+        queries = list(self.user.query_handler)
+        if not queries:
+            print(f"  {Colors.DIM}No search queries to review.{Colors.RESET}\n")
+            input("Press Enter to continue...")
+            return
+
+        # Build checkbox choices with query string and job count
+        choices = []
+        for q in queries:
+            job_count = self.user.query_handler.get_results_count(q.id)
+            # Truncate long queries for display
+            display_query = q.query[:70] + "..." if len(q.query) > 70 else q.query
+            label = f"{display_query} ({job_count} jobs found)"
+            choices.append({"name": label, "value": q.id, "enabled": True})
+
+        print(f"  {Colors.DIM}Uncheck queries to remove them.{Colors.RESET}\n")
+
+        selected_ids = inquirer.checkbox(
+            message="Keep these queries:",
+            choices=choices,
+        ).execute()
+
+        # Find which queries were unchecked (to be removed)
+        all_ids = {q.id for q in queries}
+        selected_set = set(selected_ids)
+        to_remove = list(all_ids - selected_set)
+
+        if to_remove:
+            self.user.query_handler.remove(to_remove)
+            print(f"\n{Colors.GREEN}✓ Removed {len(to_remove)} queries.{Colors.RESET}")
+            print(f"  {Colors.DIM}{len(self.user.query_handler)} queries remaining.{Colors.RESET}\n")
+        else:
+            print(f"\n{Colors.DIM}No queries removed.{Colors.RESET}\n")
+
+        input("Press Enter to continue...")
+
     def create_search_queries(self):
         """Create search queries from the user's information."""
         if not self.user.desired_job_titles:
@@ -1044,6 +1100,7 @@ Return ONLY a JSON array of 30 query strings, no other text:
                     {"name": "Refresh source documents", "value": self.refresh_source_documents},
                     {"name": "Refresh online presence", "value": self.refresh_online_presence},
                     {"name": "✨ Generate comprehensive summary", "value": self.generate_comprehensive_summary},
+                    {"name": "📄 View comprehensive summary", "value": self.view_comprehensive_summary},
                     {"name": "─" * 30, "value": None, "disabled": ""},
                     {"name": "← Back to main menu", "value": "back"},
                 ],
@@ -1090,6 +1147,7 @@ Return ONLY a JSON array of 30 query strings, no other text:
                 message="What would you like to do?",
                 choices=[
                     {"name": f"Run search ({num_queries} queries)", "value": "search"},
+                    {"name": "Review queries", "value": "review"},
                     {"name": "Generate new queries", "value": "generate"},
                     {"name": "← Back to main menu", "value": "back"},
                 ],
@@ -1097,6 +1155,8 @@ Return ONLY a JSON array of 30 query strings, no other text:
 
             if action == "back":
                 return
+            elif action == "review":
+                self.review_queries()
             elif action == "generate":
                 self.create_search_queries()
             elif action == "search":
@@ -1156,10 +1216,6 @@ Return ONLY a JSON array of 30 query strings, no other text:
             print(ASCII_ART_JOBSEARCH)
             
             print_header(f"Welcome {self.user.name}")
-
-            print()
-            print_thick_line()
-            print()
 
             action = inquirer.select(
                 message="Select an option:",
