@@ -3,6 +3,8 @@ import os
 
 from data_handlers import Job
 
+DEFAULT_WIDTH = 120
+
 
 ASCII_ART_JOBSEARCH = """   $$$$$\           $$\        $$$$$$\                                          $$\       
    \__$$ |          $$ |      $$  __$$\                                         $$ |      
@@ -41,8 +43,8 @@ class Colors:
     DIM = "\033[2m"
     RESET = "\033[0m"
 
-def print_thick_line(color=Colors.CYAN):
-    print(f"\n{Colors.BOLD}{color}{'═' * 50}{Colors.RESET}")
+def print_thick_line(color=Colors.CYAN, width: int = DEFAULT_WIDTH):
+    print(f"{Colors.BOLD}{color}{'═' * width}{Colors.RESET}")
 
 
 def print_header(text: str):
@@ -53,9 +55,9 @@ def print_header(text: str):
     print()
 
 
-def print_section(title: str):
+def print_section(title: str, width: int = DEFAULT_WIDTH):
     print(f"{Colors.BOLD}{Colors.YELLOW}{title}{Colors.RESET}")
-    print(f"{Colors.DIM}{'─' * 40}{Colors.RESET}")
+    print(f"{Colors.DIM}{'─' * width}{Colors.RESET}")
 
 
 def print_field(label: str, value: str, indent: int = 2):
@@ -76,7 +78,7 @@ def print_list(label: str, items: list, indent: int = 2):
         print(f"{spaces}  {Colors.DIM}(none){Colors.RESET}")
 
 
-def print_box(title: str, content: str, width: int = 70, indent: int = 2):
+def print_box(title: str, content: str, width: int = DEFAULT_WIDTH, indent: int = 2):
     """Display content inside a bordered box with a title."""
     spaces = " " * indent
     inner_width = width - 4  # Account for border and padding
