@@ -1157,15 +1157,23 @@ Return ONLY a JSON array of 30 query strings, no other text:
             print_thick_line()
             print()
 
-            action = inquirer.select(
-                message="What would you like to do?",
-                choices=[
+            choices=[
                     {"name": f"Run search ({num_queries} queries)", "value": "search"},
                     {"name": "Review queries", "value": "review"},
-                    {"name": "Generate new queries", "value": "generate"},
-                    {"name": "← Back to main menu", "value": "back"},
-                ],
+                    {"name": "Generate new queries", "value": "generate"}
+                ]
+            
+            jobs_label = f"View jobs ({num_jobs})" if num_jobs else "View jobs (none)"
+            if num_jobs:
+                choices.append({"name": jobs_label, "value": "jobs"})
+                
+            choices.append({"name": "← Back to main menu", "value": "back"})
+            
+            action = inquirer.select(
+                message="What would you like to do?",
+                choices=choices
             ).execute()
+            
 
             if action == "back":
                 return
@@ -1173,12 +1181,14 @@ Return ONLY a JSON array of 30 query strings, no other text:
                 self.review_queries()
             elif action == "generate":
                 self.create_search_queries()
+            elif action == "jobs":
+                self.jobs_menu()
             elif action == "search":
                 fetch_desc = inquirer.confirm(
                     message="Fetch full job descriptions? (slower but more complete)",
                     default=True
                 ).execute()
-                self.job_searcher.search(self.user, fetch_descriptions=fetch_desc)
+                self.job_searcher.search(fetch_descriptions=fetch_desc)
                 print()
   
     def jobs_menu(self):
@@ -1231,15 +1241,21 @@ Return ONLY a JSON array of 30 query strings, no other text:
             
             print_header(f"Welcome {self.user.name}")
 
+            num_jobs = len(self.user.job_handler)
+            jobs_label = f"View Jobs ({num_jobs})" if num_jobs else "No Jobs"
+            choices=[
+                {"name": "View/Edit User Info", "value": "user"},
+                {"name": "Search for Jobs", "value": "search"}
+            ]
+            if num_jobs:
+                choices.append({"name": jobs_label, "value": "jobs"})
+            choices.append([
+                {"name": "Exit", "value": "exit"}, 
+                {"name": "Settings", "value": "settings"}
+                ])
             action = inquirer.select(
                 message="Select an option:",
-                choices=[
-                    {"name": "View/Edit User Info", "value": "user"},
-                    {"name": "Search for Jobs", "value": "search"},
-                    {"name": "View Jobs", "value": "jobs"},
-                    {"name": "Settings", "value": "settings"},
-                    {"name": "Exit", "value": "exit"},
-                ],
+                choices=choices
             ).execute()
             
             if action == "exit":
