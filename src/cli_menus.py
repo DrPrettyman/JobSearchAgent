@@ -226,18 +226,26 @@ class JobOptions:
                 self.job.applied = True
                 self.user.job_handler.save()
                 print(f"\n{Colors.GREEN}✓ Marked as applied!{Colors.RESET}\n")
+                time.sleep(1)
+                return
             elif action == "unapply":
                 self.job.applied = False
                 self.user.job_handler.save()
                 print(f"\n{Colors.YELLOW}○ Marked as not applied.{Colors.RESET}\n")
+                time.sleep(1)
+                return
             elif action == "discard":
                 self.job.discarded = True
                 self.user.job_handler.save()
                 print(f"\n{Colors.RED}✗ Job discarded.{Colors.RESET}\n")
+                time.sleep(1)
+                return
             elif action == "restore":
                 self.job.discarded = False
                 self.user.job_handler.save()
                 print(f"\n{Colors.YELLOW}○ Job restored.{Colors.RESET}\n")
+                time.sleep(1)
+                return
             elif action == "open_link":
                 import webbrowser
                 webbrowser.open(self.job.link)
