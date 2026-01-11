@@ -1,6 +1,7 @@
 """CLI menu functions for JobSearch application."""
 
 import json
+import time
 import re
 from pathlib import Path
 from datetime import datetime
