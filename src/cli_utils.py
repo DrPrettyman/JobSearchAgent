@@ -128,16 +128,19 @@ def display_job_card(job: Job, index: int = None):
     
 def display_job_detail(job: Job):
     """Display detailed view of a single job."""
-    print_header(f"{job.company}")
+    print_header(f"{job.title} at {job.company}")
 
     # Status badge
     if job.applied:
         print(f"  {Colors.GREEN}━━━ ✓ APPLIED ━━━{Colors.RESET}\n")
+    elif job.discarded:
+        print(f"  {Colors.RED}━━━ ✗ DISCARDED ━━━{Colors.RESET}\n")
     else:
         print(f"  {Colors.YELLOW}━━━ ○ NOT YET APPLIED ━━━{Colors.RESET}\n")
 
     # Main info
     print_section("Position Details")
+    print_field("Company", job.company)
     print_field("Title", job.title)
     print_field("Location", job.location)
     print_field("Found", job.date_found[:10] if job.date_found else "")
