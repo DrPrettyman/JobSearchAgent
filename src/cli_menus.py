@@ -128,7 +128,48 @@ class JobOptions:
             self.export_pdf_cover_letter()
         else:
             print(f"{Colors.RED}Failed to generate cover letter.{Colors.RESET}\n")
-            
+
+    def edit_job_description(self):
+        """Allow user to paste/edit the job description."""
+        clear_screen()
+        print_header(f"Edit Description: {self.job.title} at {self.job.company}")
+
+        if self.job.full_description:
+            print(f"\n{Colors.CYAN}Current description:{Colors.RESET}")
+            print(f"{Colors.DIM}{self.job.full_description[:500]}{'...' if len(self.job.full_description) > 500 else ''}{Colors.RESET}\n")
+
+        print(f"{Colors.YELLOW}Paste the job description below.{Colors.RESET}")
+        print(f"{Colors.DIM}Type 'DONE' on a new line when finished, or 'CANCEL' to abort.{Colors.RESET}\n")
+
+        lines = []
+        while True:
+            try:
+                line = input()
+                if line.strip().upper() == "DONE":
+                    break
+                if line.strip().upper() == "CANCEL":
+                    print(f"\n{Colors.YELLOW}Cancelled.{Colors.RESET}\n")
+                    input("Press Enter to continue...")
+                    return
+                lines.append(line)
+            except EOFError:
+                break
+
+        new_description = "\n".join(lines).strip()
+
+        if not new_description:
+            print(f"\n{Colors.YELLOW}No description entered.{Colors.RESET}\n")
+            input("Press Enter to continue...")
+            return
+
+        self.job.full_description = new_description
+        # Clear cover letter topics so they'll be regenerated with new description
+        if self.job.cover_letter_topics:
+            self.job.cover_letter_topics = []
+        self.user.job_handler.save()
+        print(f"\n{Colors.GREEN}✓ Job description updated ({len(new_description)} characters){Colors.RESET}\n")
+        input("Press Enter to continue...")
+
     def menu(self):
         """View and manage a single job."""
         while True:
@@ -141,9 +182,20 @@ class JobOptions:
             else:
                 choices.append({"name": "○ Mark as not applied", "value": "unapply"})
 
+            if not self.job.discarded:
+                choices.append({"name": "✗ Discard job", "value": "discard"})
+            else:
+                choices.append({"name": "○ Restore job", "value": "restore"})
+
             if self.job.link:
                 choices.append({"name": "🔗 Open job link", "value": "open_link"})
-                
+
+            # Option to add/edit job description
+            if self.job.full_description:
+                choices.append({"name": "📝 Edit job description", "value": "edit_description"})
+            else:
+                choices.append({"name": "📝 Add job description", "value": "edit_description"})
+
             if self.job.cover_letter_body:
                 choices.append({"name": "🔄 Regenerate cover letter", "value": "cover_letter_generate"})
                 choices.append({"name": "📄 Copy plain text cover letter to clipboard", "value": "cover_letter_text_clipboard"})
@@ -170,16 +222,28 @@ class JobOptions:
 
             if action == "back":
                 break
-            elif action == "mark as applied":
+            elif action == "apply":
                 self.job.applied = True
+                self.user.job_handler.save()
                 print(f"\n{Colors.GREEN}✓ Marked as applied!{Colors.RESET}\n")
-            elif action == "unmark as applied":
+            elif action == "unapply":
                 self.job.applied = False
+                self.user.job_handler.save()
                 print(f"\n{Colors.YELLOW}○ Marked as not applied.{Colors.RESET}\n")
+            elif action == "discard":
+                self.job.discarded = True
+                self.user.job_handler.save()
+                print(f"\n{Colors.RED}✗ Job discarded.{Colors.RESET}\n")
+            elif action == "restore":
+                self.job.discarded = False
+                self.user.job_handler.save()
+                print(f"\n{Colors.YELLOW}○ Job restored.{Colors.RESET}\n")
             elif action == "open_link":
                 import webbrowser
                 webbrowser.open(self.job.link)
                 print(f"\n{Colors.DIM}Opening in browser...{Colors.RESET}\n")
+            elif action == "edit_description":
+                self.edit_job_description()
             elif action == "cover_letter_generate":
                 self.generate_cover_letter_for_job()
             elif action == "cover_letter_open":
@@ -1157,23 +1221,23 @@ Return ONLY a JSON array of 30 query strings, no other text:
             print_thick_line()
             print()
 
+            num_pending = self.user.job_handler.number_pending
             choices=[
-                    {"name": f"Run search ({num_queries} queries)", "value": "search"},
+                    {"name": f"Search using all queries ({num_queries})", "value": "search_all"},
+                    {"name": "Search using selected queries", "value": "search_selected"},
                     {"name": "Review queries", "value": "review"},
                     {"name": "Generate new queries", "value": "generate"}
                 ]
-            
-            jobs_label = f"View jobs ({num_jobs})" if num_jobs else "View jobs (none)"
-            if num_jobs:
-                choices.append({"name": jobs_label, "value": "jobs"})
-                
+
+            if num_pending:
+                choices.append({"name": f"○ View pending jobs ({num_pending})", "value": "jobs_pending"})
+
             choices.append({"name": "← Back to main menu", "value": "back"})
-            
+
             action = inquirer.select(
                 message="What would you like to do?",
                 choices=choices
             ).execute()
-            
 
             if action == "back":
                 return
@@ -1181,52 +1245,100 @@ Return ONLY a JSON array of 30 query strings, no other text:
                 self.review_queries()
             elif action == "generate":
                 self.create_search_queries()
-            elif action == "jobs":
-                self.jobs_menu()
-            elif action == "search":
+            elif action == "jobs_pending":
+                self.jobs_menu(job_type="pending")
+            elif action == "search_all":
                 fetch_desc = inquirer.confirm(
                     message="Fetch full job descriptions? (slower but more complete)",
                     default=True
                 ).execute()
                 self.job_searcher.search(fetch_descriptions=fetch_desc)
                 print()
+            elif action == "search_selected":
+                # Show checkbox to select specific queries
+                queries = list(self.user.query_handler)
+                query_choices = []
+                for q in queries:
+                    display_query = q.query[:70] + "..." if len(q.query) > 70 else q.query
+                    query_choices.append({"name": display_query, "value": q.id, "enabled": False})
+
+                selected_ids = inquirer.checkbox(
+                    message="Select queries to search with:",
+                    choices=query_choices,
+                ).execute()
+
+                if not selected_ids:
+                    print(f"\n{Colors.DIM}No queries selected.{Colors.RESET}\n")
+                    input("Press Enter to continue...")
+                    continue
+
+                fetch_desc = inquirer.confirm(
+                    message="Fetch full job descriptions? (slower but more complete)",
+                    default=True
+                ).execute()
+                self.job_searcher.search(query_ids=selected_ids, fetch_descriptions=fetch_desc)
+                print()
   
-    def jobs_menu(self):
-        """View and manage found jobs."""
+    def jobs_menu(self, job_type: str = "all"):
+        """View and manage found jobs.
+
+        Args:
+            job_type: Filter jobs by type - "pending", "applied", "discarded", or "all"
+        """
         while True:
+            # Filter jobs based on type (refresh each iteration in case status changed)
+            if job_type == "pending":
+                jobs = [j for j in self.user.job_handler if not j.applied and not j.discarded]
+                header_title = "Pending Jobs"
+                empty_msg = "No pending jobs."
+            elif job_type == "applied":
+                jobs = [j for j in self.user.job_handler if j.applied]
+                header_title = "Applied Jobs"
+                empty_msg = "No applied jobs yet."
+            elif job_type == "discarded":
+                jobs = [j for j in self.user.job_handler if j.discarded]
+                header_title = "Discarded Jobs"
+                empty_msg = "No discarded jobs."
+            else:
+                jobs = list(self.user.job_handler)
+                header_title = "All Jobs"
+                empty_msg = "No jobs found yet."
+
             clear_screen()
-            if not len(self.user.job_handler):
-                print_header("Jobs")
-                print(f"  {Colors.DIM}No jobs found yet.{Colors.RESET}")
-                print(f"  {Colors.DIM}Use 'Search for Jobs' to find opportunities.{Colors.RESET}\n")
+            print_header(header_title)
+
+            if not jobs:
+                print(f"  {Colors.DIM}{empty_msg}{Colors.RESET}\n")
+                input("Press Enter to continue...")
                 return
 
-            print_header("Jobs")
-            print(f"  {Colors.GREEN}✓ {self.user.job_handler.number_applied} applied{Colors.RESET}  •  {Colors.YELLOW}○ {self.user.job_handler.number_not_applied} pending{Colors.RESET}  •  {Colors.DIM}{len(self.user.job_handler)} total{Colors.RESET}\n")
+            print(f"  {Colors.GREEN}✓ {self.user.job_handler.number_applied} applied{Colors.RESET}  •  {Colors.YELLOW}○ {self.user.job_handler.number_pending} pending{Colors.RESET}  •  {Colors.RED}✗ {self.user.job_handler.number_discarded} discarded{Colors.RESET}  •  {Colors.DIM}{len(self.user.job_handler)} total{Colors.RESET}\n")
 
             # Display jobs as cards
-            for i, job in enumerate(self.user.job_handler, 1):
+            for i, job in enumerate(jobs, 1):
                 display_job_card(job, i)
-
-            # Build choices
-            job_choices = [{"name": f"{j.company} - {j.title}", "value": j.id} for j in self.user.job_handler]
-            job_choices.append({"name": "─" * 30, "value": None, "disabled": ""})
-            job_choices.append({"name": "← Back to main menu", "value": "back"})
 
             print()
             print_thick_line()
             print()
 
-            action = inquirer.select(
-                message="Select a job to view details:",
-                choices=job_choices,
+            user_input = inquirer.text(
+                message=f"Enter job number (1-{len(jobs)}) or 'b' to go back:",
             ).execute()
 
-            if action == "back" or action is None:
+            if user_input.lower() in ("b", "back", ""):
                 break
 
-            # Show job detail
-            JobOptions(user=self.user, job_id=action).menu()
+            try:
+                index = int(user_input) - 1
+                if 0 <= index < len(jobs):
+                    JobOptions(user=self.user, job_id=jobs[index].id).menu()
+                else:
+                    print(f"\n{Colors.RED}Invalid number. Please enter 1-{len(jobs)}.{Colors.RESET}\n")
+                    input("Press Enter to continue...")
+            except ValueError:
+                print(f"\n{Colors.RED}Invalid input. Enter a number or 'b' to go back.{Colors.RESET}\n")
+                input("Press Enter to continue...")
     
     def main_menu(self):
         """Main application menu."""
@@ -1241,23 +1353,33 @@ Return ONLY a JSON array of 30 query strings, no other text:
             
             print_header(f"Welcome {self.user.name}")
 
-            num_jobs = len(self.user.job_handler)
-            jobs_label = f"View Jobs ({num_jobs})" if num_jobs else "No Jobs"
+            num_pending = self.user.job_handler.number_pending
+            num_applied = self.user.job_handler.number_applied
+            num_discarded = self.user.job_handler.number_discarded
+            num_total = len(self.user.job_handler)
+
+            if num_total:
+                print(f"  {Colors.GREEN}✓ {num_applied} applied{Colors.RESET}  •  {Colors.YELLOW}○ {num_pending} pending{Colors.RESET}  •  {Colors.RED}✗ {num_discarded} discarded{Colors.RESET}  •  {Colors.DIM}{num_total} total{Colors.RESET}\n")
+
             choices=[
                 {"name": "View/Edit User Info", "value": "user"},
                 {"name": "Search for Jobs", "value": "search"}
             ]
-            if num_jobs:
-                choices.append({"name": jobs_label, "value": "jobs"})
-            choices.append([
-                {"name": "Exit", "value": "exit"}, 
-                {"name": "Settings", "value": "settings"}
+            if num_pending:
+                choices.append({"name": f"○ View pending jobs ({num_pending})", "value": "jobs_pending"})
+            if num_applied:
+                choices.append({"name": f"✓ View applied jobs ({num_applied})", "value": "jobs_applied"})
+            if num_discarded:
+                choices.append({"name": f"✗ View discarded jobs ({num_discarded})", "value": "jobs_discarded"})
+            choices.extend([
+                {"name": "Settings", "value": "settings"},
+                {"name": "Exit", "value": "exit"}
                 ])
             action = inquirer.select(
                 message="Select an option:",
                 choices=choices
             ).execute()
-            
+
             if action == "exit":
                 print(f"\n{Colors.DIM}Goodbye!{Colors.RESET}\n")
                 break
@@ -1265,7 +1387,11 @@ Return ONLY a JSON array of 30 query strings, no other text:
                 self.user_info_menu()
             elif action == "search":
                 self.search_menu()
-            elif action == "jobs":
-                self.jobs_menu()
+            elif action == "jobs_pending":
+                self.jobs_menu(job_type="pending")
+            elif action == "jobs_applied":
+                self.jobs_menu(job_type="applied")
+            elif action == "jobs_discarded":
+                self.jobs_menu(job_type="discarded")
             elif action == "settings":
                 print(f"\n{Colors.DIM}Settings coming soon...{Colors.RESET}\n")
