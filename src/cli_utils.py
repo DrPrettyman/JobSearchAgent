@@ -14,9 +14,6 @@ $$\   $$ |$$ /  $$ |$$ |  $$ | \____$$\ $$$$$$$$ | $$$$$$$ |$$ |  \__|$$ /      
 $$ |  $$ |$$ |  $$ |$$ |  $$ |$$\   $$ |$$   ____|$$  __$$ |$$ |      $$ |      $$ |  $$ |
 \$$$$$$  |\$$$$$$  |$$$$$$$  |\$$$$$$  |\$$$$$$$\ \$$$$$$$ |$$ |      \$$$$$$$\ $$ |  $$ |
  \______/  \______/ \_______/  \______/  \_______| \_______|\__|       \_______|\__|  \__|
-                                                                                          
-                                                                                          
-                                                                                          
 """
 
 
@@ -109,28 +106,22 @@ def print_box(title: str, content: str, width: int = DEFAULT_WIDTH, indent: int 
 
 def display_job_card(job: Job, index: int = None):
     """Display a single job as a beautiful card."""
-    # Status indicator
-    if job.applied:
-        status = f"{Colors.GREEN}✓ Applied{Colors.RESET}"
-    else:
-        status = f"{Colors.YELLOW}○ Not applied{Colors.RESET}"
-
     # Index prefix if provided
-    prefix = f"{Colors.DIM}[{index}]{Colors.RESET} " if index is not None else ""
-
-    # Company and title line
-    print(f"  {prefix}{Colors.BOLD}{job.company}{Colors.RESET}")
-    print(f"      {Colors.CYAN}{job.title}{Colors.RESET}  {status}")
-
-    # Location and date
+    padding = 0
+    if index is not None:
+        padding = 3 - len(str(index))
+        prefix = f"{Colors.DIM}[{index}]{Colors.RESET}" + " " * padding
+    else:
+        prefix = f"{Colors.DIM}[???]{Colors.RESET}"
+        
     location = job.location or "Location not specified"
     date = job.date_found[:10] if job.date_found else "Unknown date"
-    print(f"      {Colors.DIM}📍 {location}  •  📅 {date}{Colors.RESET}")
+    print(" "*2 + f"{prefix}{Colors.BOLD}{job.company}{Colors.RESET} {Colors.DIM}📍 {location}{Colors.RESET}")
+    print(" "*(2 + 3 +padding) + f"{Colors.CYAN}{job.title}{Colors.RESET} {Colors.DIM}📅 {date}{Colors.RESET}")
 
     # Clickable apply link
     if job.link:
-        link_text = hyperlink(job.link, "Apply →")
-        print(f"      {Colors.BLUE}{link_text}{Colors.RESET}")
+        print(" "*(2 + 3 +padding) + f"{Colors.BLUE}{hyperlink(job.link)}{Colors.RESET}")
 
     print()
     
