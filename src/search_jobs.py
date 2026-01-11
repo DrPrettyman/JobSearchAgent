@@ -151,8 +151,13 @@ class JobSearcher:
                 bad_indices.append(job["index"])
         return bad_indices
 
-    def _filter_unsuitable(self, jobs: list[dict]) -> list[int]:
-        """Use Claude to filter out jobs that don't match user's background."""
+    def _filter_unsuitable(self, jobs: list[dict], chunk_size: int = 20) -> list[int]:
+        """Use Claude to filter out jobs that don't match user's background.
+
+        Args:
+            jobs: List of job dicts to filter
+            chunk_size: Number of jobs to process per Claude call (default 20)
+        """
         if not jobs:
             return []
 
@@ -163,18 +168,34 @@ class JobSearcher:
         if not user_background:
             return []  # Can't filter without user docs
 
-        jobs_summary = json.dumps([{
-            "index": j["index"],
-            "company": j["company"],
-            "title": j["title"],
-            "location": j.get("location", ""),
-            "description": j.get("description", "")
-        } for j in jobs], indent=2)
-        
-        good_indices = filter_unsuitable_jobs(jobs_summary, user_background)
-        
-        bad_indices = set(j["index"] for j in jobs) - set(good_indices)
-        return list(bad_indices)
+        # Process jobs in chunks to avoid overwhelming Claude
+        all_good_indices = []
+        num_chunks = (len(jobs) + chunk_size - 1) // chunk_size
+
+        for i in range(0, len(jobs), chunk_size):
+            chunk = jobs[i:i + chunk_size]
+            chunk_num = i // chunk_size + 1
+            print(f"  Filtering chunk {chunk_num}/{num_chunks} ({len(chunk)} jobs)...")
+
+            jobs_summary = json.dumps([{
+                "index": j["index"],
+                "company": j["company"],
+                "title": j["title"],
+                "location": j.get("location", ""),
+                "description": j.get("description", "")
+            } for j in chunk], indent=2)
+
+            good_indices = filter_unsuitable_jobs(jobs_summary, user_background)
+
+            if good_indices is not None:
+                all_good_indices.extend(good_indices)
+            else:
+                # If filtering fails for a chunk, keep all jobs from that chunk
+                all_good_indices.extend(j["index"] for j in chunk)
+
+        all_indices = [j["index"] for j in jobs]
+        bad_indices = sorted(set(all_indices) - set(all_good_indices))
+        return bad_indices
 
     def _search_for_jobs(self, queries: list[SearchQuery]) -> list[dict]:
         """Search for jobs using all queries."""
@@ -236,11 +257,18 @@ class JobSearcher:
 
         return [j for j in jobs if j["index"] not in bad_indices]
 
-    def search(self, max_queries: int = None, fetch_descriptions: bool = True):
-        """Run the full job search pipeline."""
-        queries = list(self.user.query_handler)
-        if max_queries:
-            queries = queries[:max_queries]
+    def search(self, query_ids: list[int] = None, fetch_descriptions: bool = True):
+        """Run the full job search pipeline.
+
+        Args:
+            query_ids: List of query IDs to search with. If None, uses all queries.
+            fetch_descriptions: Whether to fetch full job descriptions.
+        """
+        all_queries = list(self.user.query_handler)
+        if query_ids is not None:
+            queries = [q for q in all_queries if q.id in query_ids]
+        else:
+            queries = all_queries
 
         jobs = []
 
@@ -294,9 +322,3 @@ class JobSearcher:
 
         # Clear temp file after successful processing
         self.user.job_handler.clear_temp()
-
-
-def search(user: User, max_queries: int = None, fetch_descriptions: bool = True):
-    """Convenience function to run job search for a user."""
-    searcher = JobSearcher(user)
-    searcher.search(max_queries=max_queries, fetch_descriptions=fetch_descriptions)
