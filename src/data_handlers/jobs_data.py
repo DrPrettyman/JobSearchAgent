@@ -12,6 +12,7 @@ class Job:
         title: str,
         date_found: str,
         applied: bool,
+        discarded: bool,
         link: str,
         location: str,
         description: str,
@@ -27,6 +28,7 @@ class Job:
         self.title = title
         self.date_found = date_found
         self.applied = applied
+        self.discarded = discarded
         self.link = link
         self.location = location
         self.description = description
@@ -48,6 +50,7 @@ class Job:
             "title": self.title,
             "date_found": self.date_found,
             "applied": self.applied,
+            "discarded": self.discarded,
             "link": self.link,
             "location": self.location,
             "description": self.description,
@@ -123,6 +126,7 @@ class Jobs:
                 title=_job_data.get("title", ""),
                 date_found=_job_data.get("date_found", ""),
                 applied=_job_data.get("applied", False),
+                discarded=_job_data.get("discarded", False),
                 link=_job_data.get("link", ""),
                 location=_job_data.get("location", ""),
                 description=_job_data.get("description", ""),
@@ -150,11 +154,20 @@ class Jobs:
     
     @property
     def number_applied(self) -> int:
-        return sum(self)
-    
+        return sum(1 for job in self if job.applied)
+
     @property
     def number_not_applied(self) -> int:
-        return len(self) - sum(self)
+        return sum(1 for job in self if not job.applied)
+
+    @property
+    def number_discarded(self) -> int:
+        return sum(1 for job in self if job.discarded)
+
+    @property
+    def number_pending(self) -> int:
+        """Jobs that are not applied and not discarded."""
+        return sum(1 for job in self if not job.applied and not job.discarded)
 
     def to_dict(self):
         return {_id: _job.to_dict() for _id, _job in self._jobs.items()}
@@ -194,6 +207,7 @@ class Jobs:
             title=title,
             date_found=datetime_iso(),
             applied=False,
+            discarded=False,
             link=link,
             location=location,
             description=description,
