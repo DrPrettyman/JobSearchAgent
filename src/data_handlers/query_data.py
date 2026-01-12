@@ -75,6 +75,15 @@ class SearchQueries:
         with open(self._results_path, 'a') as f:
             writer = csv.writer(f)
             writer.writerow([_id, datetime_iso(), potential_leads])
+            
+    def write_results(self, results: dict[int, int]):
+        rows = [
+            [_id, datetime_iso(), _leads]
+            for _id, _leads in results.items()
+        ]
+        with open(self._results_path, 'a') as f:
+            writer = csv.writer(f)
+            writer.writerows(rows)
 
     def get_results_count(self, query_id: int) -> int:
         """Get total potential leads found for a query from results CSV."""

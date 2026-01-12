@@ -2,7 +2,14 @@
 
 import json
 from collections import defaultdict
-from utils import run_claude, scrape, combined_documents_as_string, extract_json_from_response
+from utils import (
+    counter, 
+    merge_records,
+    run_claude, 
+    scrape, 
+    combined_documents_as_string, 
+    extract_json_from_response,
+    )
 from data_handlers import User, SearchQuery
 from data_handlers.utils import timestamp_is_recent
 
@@ -127,22 +134,6 @@ class JobSearcher:
     def __init__(self, user: User):
         self.user = user
 
-    def _merge_records_and_add_index(self, jobs: list[dict]) -> list[dict]:
-        """Merge duplicate jobs by link and add index to each."""
-        new_jobs = []
-        for job in jobs:
-            for existing in new_jobs:
-                if job["link"] == existing["link"]:
-                    existing["query_ids"].extend(job.get("query_ids", []))
-                    break
-            else:
-                new_jobs.append(job)
-
-        for i, j in enumerate(new_jobs):
-            j["index"] = i
-
-        return new_jobs
-
     def _filter_duplicates(self, jobs: list[dict]) -> list[int]:
         """Return indices of jobs that already exist in user's job handler."""
         bad_indices = []
@@ -205,7 +196,6 @@ class JobSearcher:
         for i, query in enumerate(queries, 1):
             print(f"\n[{i}/{len(queries)}] {query.query[:60]}...")
             jobs_found = search_query(query.query)
-            query.write_result(len(jobs_found))
             for job in jobs_found:
                 job["query_ids"] = [query.id]
                 print(f"  Found: {job.get('title', 'Unknown')} at {job.get('company', 'Unknown')}")
@@ -217,9 +207,12 @@ class JobSearcher:
         return all_jobs
 
     def _post_process_jobs(self, jobs: list[dict], fetch_descriptions: bool = True) -> list[dict]:
-        """Process jobs: merge, dedupe, fetch descriptions, filter unsuitable."""
-        # Merge matching jobs
-        jobs = self._merge_records_and_add_index(jobs)
+        """Process jobs: merge, de-dupe, fetch descriptions, filter unsuitable."""
+        # Merge matching jobs (same link)
+        jobs = merge_records(records=jobs, merge_on="link", merge="query_ids")
+        
+        for i, j in enumerate(jobs):
+            j["index"] = i
 
         # Filter duplicates
         print("\nFiltering duplicates...")
@@ -244,16 +237,7 @@ class JobSearcher:
 
         # Phase 3: Filter unsuitable jobs
         print("\nFiltering unsuitable jobs...")
-        bad_indices = self._filter_unsuitable(jobs)
-
-        # For unsuitable jobs, add negative result to queries that generated them
-        query_negative_results = defaultdict(int)
-        for job in jobs:
-            if job["index"] in bad_indices:
-                for qi in job.get("query_ids", []):
-                    query_negative_results[qi] -= 1
-        for query_id, count in query_negative_results.items():
-            self.user.query_handler.write_result(query_id, count)
+        bad_indices = self._filter_unsuitable(jobs, chunk_size=20)
 
         return [j for j in jobs if j["index"] not in bad_indices]
 
@@ -281,10 +265,10 @@ class JobSearcher:
         for record in abandoned_searches:
             jobs.extend(record.get("jobs", []))
             if timestamp_is_recent(record.get("timestamp", ""), recent_threshold_hours=12):
-                recent_queries_used.add(record.get("query_str"))
+                recent_queries_used.add(record.get("query_id"))
 
         # Filter out queries already completed recently
-        queries = [q for q in queries if q.query not in recent_queries_used]
+        queries = [q for q in queries if q.id not in recent_queries_used]
 
         if not queries and not jobs:
             print("No search queries configured. Generate queries first.")
@@ -302,6 +286,11 @@ class JobSearcher:
         if not jobs:
             print("\nNo suitable jobs found.")
             return
+        
+        # Write query results
+        self.user.query_handler.write_results(
+            counter([j['query_ids'] for j in jobs])
+        )
 
         # Add to job handler
         print(f"\nAdding {len(jobs)} jobs to database...")
@@ -313,7 +302,8 @@ class JobSearcher:
                 location=job_data.get("location", ""),
                 description=job_data.get("description", ""),
                 full_description=job_data.get("full_description", ""),
-                addressee=job_data.get("addressee")
+                addressee=job_data.get("addressee"),
+                query_ids=job_data.get("query_ids", [])
             )
             print(f"  Added: {job.title} at {job.company} ({job.id})")
 

@@ -465,14 +465,12 @@ class JobOptions:
                 time.sleep(1)
                 return
             elif action == "discard":
-                self.job.discarded = True
-                self.user.job_handler.save()
+                self.user.discard_job(job_id=self.job.id)
                 print(f"\n{Colors.RED}✗ Job discarded.{Colors.RESET}\n")
                 time.sleep(1)
                 return
             elif action == "restore":
-                self.job.discarded = False
-                self.user.job_handler.save()
+                self.user.restore_job(job_id=self.job.id)
                 print(f"\n{Colors.YELLOW}○ Job restored.{Colors.RESET}\n")
                 time.sleep(1)
                 return

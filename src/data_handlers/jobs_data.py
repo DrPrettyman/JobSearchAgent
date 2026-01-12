@@ -22,7 +22,8 @@ class Job:
         cover_letter_body: str,
         addressee: str | None,
         cover_letter_pdf_path: Path | str | None = None,
-        questions: list[dict] | None = None
+        questions: list[dict] | None = None,
+        query_ids: list[int] = None
     ):
         self.id = _id
         self.company = company
@@ -39,6 +40,7 @@ class Job:
         self.cover_letter_body = cover_letter_body
         self.addressee = addressee
         self.questions = questions or []
+        self.query_ids = query_ids or []
         if cover_letter_pdf_path is not None:
             if isinstance(cover_letter_pdf_path, str):
                 cover_letter_pdf_path = Path(cover_letter_pdf_path)
@@ -62,7 +64,8 @@ class Job:
             "cover_letter_body": self.cover_letter_body,
             "addressee": self.addressee,
             "cover_letter_pdf_path": str(self.cover_letter_pdf_path) if self.cover_letter_pdf_path else None,
-            "questions": self.questions
+            "questions": self.questions,
+            "query_ids": self.query_ids
         }
         
     def __bool__(self):
@@ -139,7 +142,8 @@ class Jobs:
                 cover_letter_body=_job_data.get("cover_letter_body", ""),
                 addressee=_job_data.get("addressee"),
                 cover_letter_pdf_path=_job_data.get("cover_letter_pdf_path"),
-                questions=_job_data.get("questions", [])
+                questions=_job_data.get("questions", []),
+                query_ids=_job_data.get("query_ids", [])
             )
         self._jobs = jobs
         
@@ -202,7 +206,7 @@ class Jobs:
 
     def add(self, company: str, title: str, link: str, location: str = "",
             description: str = "", full_description: str = "",
-            addressee: str | None = None) -> Job:
+            addressee: str | None = None, query_ids: list[int] = None) -> Job:
         """Add a new job and return it."""
         _id = self._generate_id(company)
         job = Job(
@@ -219,7 +223,8 @@ class Jobs:
             cover_letter_topics=[],
             full_description=full_description,
             cover_letter_body="",
-            addressee=addressee
+            addressee=addressee,
+            query_ids=query_ids
         )
         self._jobs[_id] = job
         return job
@@ -233,11 +238,11 @@ class Jobs:
         """Path to temporary JSONL file for crash recovery."""
         return self._temp_file
 
-    def append_to_temp(self, query_str: str, jobs: list[dict]):
+    def append_to_temp(self, query_id: str, jobs: list[dict]):
         """Append a search result record to the temp file."""
         from .utils import datetime_iso
         record = {
-            "query_str": query_str,
+            "query_str": query_id,
             "timestamp": datetime_iso(),
             "jobs": jobs
         }

@@ -25,6 +25,40 @@ def extract_json_from_response(response: str) -> str:
     return response
 
 
+
+def merge_records(records: list[dict], merge_on: str, merge: str) -> list[dict]:
+    """Merge duplicate jobs by link and add index to each."""
+    new_list = []
+    for r in records:
+        for s in new_list:
+            if r[merge_on] == s[merge_on]:
+                s[merge] += r[merge]
+                break
+        else:
+            new_list.append(r)
+    return new_list
+
+
+def unnest(lst: list) -> list:
+    items = []
+    for item in lst:
+        if isinstance(item, list):
+            items.extend(unnest(item))
+        else:
+            items.append(item)
+    return items
+
+
+def counter(lst: list) -> dict:
+    """Count the number of times each value occurs in a nested list"""
+    count = dict()
+    for item in unnest(lst):
+        if item not in count:
+            count[item] = 0
+        count[item] += 1
+    return count
+
+
 def resolve_paths(paths: list[str]) -> list[str]:
     """Resolve glob patterns in paths to actual file paths."""
     resolved_paths = []

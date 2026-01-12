@@ -281,3 +281,32 @@ class User:
     def remove_desired_job_location(self, location: str):
         if location in self._desired_job_locations:
             self._desired_job_locations.remove(location)
+            
+    def discard_job(self, job_id):
+        job = self.job_handler.get(job_id)
+        if job is None:
+            return
+        
+        job.discarded = True
+        
+        if job.query_ids:
+            self.query_handler.write_results(
+                {qid: -1 for qid in job.query_ids}
+            )
+        
+        self.job_handler.save()
+            
+    def restore_job(self, job_id):
+        job = self.job_handler.get(job_id)
+        if job is None:
+            return
+        
+        job.discarded = False
+        
+        if job.query_ids:
+            self.query_handler.write_results(
+                {qid: 1 for qid in job.query_ids}
+            )
+            
+        self.job_handler.save()
+        
