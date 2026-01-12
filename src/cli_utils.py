@@ -39,6 +39,24 @@ class Colors:
     BOLD = "\033[1m"
     DIM = "\033[2m"
     RESET = "\033[0m"
+    
+    
+def text_to_lines(text: str, width: int = DEFAULT_WIDTH) -> list[str]:
+    words = text.split()
+    
+    lines = []
+    line = ""
+    for word in words:
+        if len(line) + len(word) > width:
+            lines.append(line.rstrip())
+            line = ""
+        line += word + " "
+        
+    if strip_line := line.strip():
+        lines.append(strip_line)
+        
+    return lines
+
 
 def print_thick_line(color=Colors.CYAN, width: int = DEFAULT_WIDTH):
     print(f"{Colors.BOLD}{color}{'═' * width}{Colors.RESET}")
@@ -57,13 +75,28 @@ def print_section(title: str, width: int = DEFAULT_WIDTH):
     print(f"{Colors.DIM}{'─' * width}{Colors.RESET}")
 
 
-def print_field(label: str, value: str, indent: int = 2):
+def print_field(label: str, value: str, indent: int = 2, width: int = DEFAULT_WIDTH - 4):
     spaces = " " * indent
-    if value:
-        print(f"{spaces}{Colors.DIM}{label}:{Colors.RESET} {value}")
-    else:
+    if not value:
         print(f"{spaces}{Colors.DIM}{label}:{Colors.RESET} {Colors.DIM}(not set){Colors.RESET}")
-
+        return
+    
+    new_line_indent = len(label) + 2
+    
+    lines = text_to_lines(
+        text=value,
+        width=width-new_line_indent
+    )
+    
+    print(f"{spaces}{Colors.DIM}{label}:{Colors.RESET} {lines[0]}")
+    
+    if len(lines) == 1:
+        return
+    
+    padding = " " * (indent + new_line_indent)
+    for line in lines[1:]:
+        print(padding + line)
+    
 
 def print_list(label: str, items: list, indent: int = 2):
     spaces = " " * indent
@@ -75,7 +108,7 @@ def print_list(label: str, items: list, indent: int = 2):
         print(f"{spaces}  {Colors.DIM}(none){Colors.RESET}")
 
 
-def print_box(title: str, content: str, width: int = DEFAULT_WIDTH, indent: int = 2):
+def print_box(title: str, content: str, width: int = DEFAULT_WIDTH - 2, indent: int = 2):
     """Display content inside a bordered box with a title."""
     spaces = " " * indent
     inner_width = width - 4  # Account for border and padding
@@ -146,47 +179,31 @@ def display_job_detail(job: Job):
     print_field("Found", job.date_found[:10] if job.date_found else "")
     if job.addressee:
         print_field("Hiring Manager", job.addressee)
-    print()
-
-    # Apply link (prominent)
     if job.link:
-        print_section("Apply")
-        link = hyperlink(job.link, job.link)
-        print(f"  {Colors.BLUE}{Colors.BOLD}{link}{Colors.RESET}")
-        print()
+        print_field("Link", hyperlink(job.link, job.link))
+    print()
 
     # Description
     if job.description:
         print_section("Summary")
         # Word wrap the description
-        words = job.description.split()
-        line = "  "
-        for word in words:
-            if len(line) + len(word) > 78:
-                print(line)
-                line = "  "
-            line += word + " "
-        if line.strip():
-            print(line)
+        lines = text_to_lines(text=job.description, width=DEFAULT_WIDTH - 4)
+        for line in lines:
+            print("  " + line)
         print()
 
     # Full description (truncated preview)
     if job.full_description:
         print_section("Full Description")
-        preview = job.full_description[:500]
         if len(job.full_description) > 500:
-            preview += "..."
-        # Word wrap
-        words = preview.split()
-        line = "  "
-        for word in words:
-            if len(line) + len(word) > 78:
-                print(line)
-                line = "  "
-            line += word + " "
-        if line.strip():
-            print(line)
-        print(f"\n  {Colors.DIM}({len(job.full_description)} characters total){Colors.RESET}")
+            preview = job.full_description[:500] + "..."
+        else:
+            preview = job.full_description
+            
+        lines = text_to_lines(text=preview, width=DEFAULT_WIDTH - 4)
+        for line in lines:
+            print("  " + line)
+        print(f"\n  {Colors.DIM}({len(job.full_description.split())} words total){Colors.RESET}")
         print()
 
     # Questions summary
