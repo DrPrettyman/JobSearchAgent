@@ -280,6 +280,69 @@ class JobOptions:
             self.user.job_handler.save()
             print(f"\n{Colors.GREEN}✓ Questions cleared.{Colors.RESET}\n")
 
+    def edit_job_details(self):
+        """Edit basic job details (company, title, location, link, addressee)."""
+        while True:
+            clear_screen()
+            print_header(f"Edit Job Details")
+
+            print_section("Current Details")
+            print_field("Company", self.job.company)
+            print_field("Title", self.job.title)
+            print_field("Location", self.job.location)
+            print_field("Link", self.job.link)
+            print_field("Hiring Manager", self.job.addressee)
+            print()
+
+            action = inquirer.select(
+                message="What would you like to edit?",
+                choices=[
+                    {"name": "Company", "value": "company"},
+                    {"name": "Title", "value": "title"},
+                    {"name": "Location", "value": "location"},
+                    {"name": "Link", "value": "link"},
+                    {"name": "Hiring Manager", "value": "addressee"},
+                    {"name": "← Done", "value": "done"},
+                ],
+            ).execute()
+
+            if action == "done":
+                break
+            elif action == "company":
+                new_value = inquirer.text(
+                    message="Company name:",
+                    default=self.job.company,
+                ).execute()
+                if new_value:
+                    self.job.company = new_value
+            elif action == "title":
+                new_value = inquirer.text(
+                    message="Job title:",
+                    default=self.job.title,
+                ).execute()
+                if new_value:
+                    self.job.title = new_value
+            elif action == "location":
+                new_value = inquirer.text(
+                    message="Location:",
+                    default=self.job.location or "",
+                ).execute()
+                self.job.location = new_value
+            elif action == "link":
+                new_value = inquirer.text(
+                    message="Job posting URL:",
+                    default=self.job.link or "",
+                ).execute()
+                self.job.link = new_value
+            elif action == "addressee":
+                new_value = inquirer.text(
+                    message="Hiring manager name (leave blank if unknown):",
+                    default=self.job.addressee or "",
+                ).execute()
+                self.job.addressee = new_value if new_value else None
+
+            self.user.job_handler.save()
+
     def edit_job_description(self):
         """Allow user to paste/edit the job description."""
         clear_screen()
@@ -340,6 +403,8 @@ class JobOptions:
 
             if self.job.link:
                 choices.append({"name": "🔗 Open job link", "value": "open_link"})
+
+            choices.append({"name": "✏️ Edit job details", "value": "edit_details"})
 
             # Option to add/edit job description
             if self.job.full_description:
@@ -414,6 +479,8 @@ class JobOptions:
                 import webbrowser
                 webbrowser.open(self.job.link)
                 print(f"\n{Colors.DIM}Opening in browser...{Colors.RESET}\n")
+            elif action == "edit_details":
+                self.edit_job_details()
             elif action == "edit_description":
                 self.edit_job_description()
             elif action == "cover_letter_generate":
@@ -1519,7 +1586,134 @@ Return ONLY a JSON array of 30 query strings, no other text:
             except ValueError:
                 print(f"\n{Colors.RED}Invalid input. Enter a number or 'b' to go back.{Colors.RESET}\n")
                 input("Press Enter to continue...")
-    
+
+    def add_job_menu(self):
+        """Add a job manually or from a URL."""
+        from search_jobs import fetch_full_description
+
+        clear_screen()
+        print_header("Add a Job")
+
+        action = inquirer.select(
+            message="How would you like to add the job?",
+            choices=[
+                {"name": "Paste a job posting URL (auto-scrape)", "value": "url"},
+                {"name": "Enter details manually", "value": "manual"},
+                {"name": "← Cancel", "value": "cancel"},
+            ],
+        ).execute()
+
+        if action == "cancel":
+            return
+
+        if action == "url":
+            url = inquirer.text(
+                message="Job posting URL:",
+            ).execute()
+
+            if not url:
+                print(f"\n{Colors.YELLOW}No URL entered.{Colors.RESET}\n")
+                input("Press Enter to continue...")
+                return
+
+            print(f"\n{Colors.CYAN}Fetching job description...{Colors.RESET}")
+            full_description = fetch_full_description(url)
+
+            if full_description:
+                print(f"{Colors.GREEN}✓ Got {len(full_description)} characters{Colors.RESET}\n")
+            else:
+                print(f"{Colors.YELLOW}Could not extract description. You can add it manually later.{Colors.RESET}\n")
+
+            # Prompt for required fields
+            company = inquirer.text(
+                message="Company name:",
+            ).execute()
+
+            if not company:
+                print(f"\n{Colors.RED}Company name is required.{Colors.RESET}\n")
+                input("Press Enter to continue...")
+                return
+
+            title = inquirer.text(
+                message="Job title:",
+            ).execute()
+
+            if not title:
+                print(f"\n{Colors.RED}Job title is required.{Colors.RESET}\n")
+                input("Press Enter to continue...")
+                return
+
+            location = inquirer.text(
+                message="Location (optional):",
+            ).execute()
+
+            # Create the job
+            job = self.user.job_handler.add(
+                company=company,
+                title=title,
+                link=url,
+                location=location or "",
+                full_description=full_description or "",
+            )
+            self.user.job_handler.save()
+            print(f"\n{Colors.GREEN}✓ Added: {job.title} at {job.company}{Colors.RESET}\n")
+
+            # Open the job details menu
+            edit_now = inquirer.confirm(
+                message="Edit job details now?",
+                default=True
+            ).execute()
+
+            if edit_now:
+                JobOptions(user=self.user, job_id=job.id).menu()
+
+        elif action == "manual":
+            # Prompt for required fields
+            company = inquirer.text(
+                message="Company name:",
+            ).execute()
+
+            if not company:
+                print(f"\n{Colors.RED}Company name is required.{Colors.RESET}\n")
+                input("Press Enter to continue...")
+                return
+
+            title = inquirer.text(
+                message="Job title:",
+            ).execute()
+
+            if not title:
+                print(f"\n{Colors.RED}Job title is required.{Colors.RESET}\n")
+                input("Press Enter to continue...")
+                return
+
+            link = inquirer.text(
+                message="Job posting URL (optional):",
+            ).execute()
+
+            location = inquirer.text(
+                message="Location (optional):",
+            ).execute()
+
+            # Create the job
+            job = self.user.job_handler.add(
+                company=company,
+                title=title,
+                link=link or "",
+                location=location or "",
+            )
+            self.user.job_handler.save()
+            print(f"\n{Colors.GREEN}✓ Added: {job.title} at {job.company}{Colors.RESET}\n")
+
+            # Open the job details menu to add more info
+            edit_now = inquirer.confirm(
+                message="Add more details now?",
+                default=True
+            ).execute()
+
+            if edit_now:
+                JobOptions(user=self.user, job_id=job.id).menu()
+
     def main_menu(self):
         """Main application menu."""
         
@@ -1552,6 +1746,7 @@ Return ONLY a JSON array of 30 query strings, no other text:
             if num_discarded:
                 choices.append({"name": f"✗ View discarded jobs ({num_discarded})", "value": "jobs_discarded"})
             choices.extend([
+                {"name": "Add a job manually", "value": "add_job"},
                 {"name": "Settings", "value": "settings"},
                 {"name": "Exit", "value": "exit"}
                 ])
@@ -1573,5 +1768,7 @@ Return ONLY a JSON array of 30 query strings, no other text:
                 self.jobs_menu(job_type="applied")
             elif action == "jobs_discarded":
                 self.jobs_menu(job_type="discarded")
+            elif action == "add_job":
+                self.add_job_menu()
             elif action == "settings":
                 print(f"\n{Colors.DIM}Settings coming soon...{Colors.RESET}\n")
