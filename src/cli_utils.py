@@ -116,12 +116,12 @@ def display_job_card(job: Job, index: int = None):
     date = job.date_found[:10] if job.date_found else "Unknown date"
     padding = " " * 6
     
-    print(f"{prefix}{Colors.BOLD}{job.company}{Colors.RESET} {Colors.DIM}📍 {location}{Colors.RESET}")
-    print(padding + f"{Colors.CYAN}{job.title}{Colors.RESET} {Colors.DIM}📅 {date}{Colors.RESET}")
+    print(f"{prefix}{Colors.BOLD}{job.company}{Colors.RESET} {Colors.BLUE}📍 {location}{Colors.RESET}")
+    print(padding + f"{Colors.CYAN}{job.title}{Colors.RESET} {Colors.BLUE}📅 {date}{Colors.RESET}")
 
-    # Clickable apply link
-    if job.link:
-        print(padding + f"{Colors.BLUE}{hyperlink(job.link)}{Colors.RESET}")
+    # # Clickable apply link
+    # if job.link:
+    #     print(padding + f"{Colors.BLUE}{hyperlink(job.link)}{Colors.RESET}")
 
     print()
     
