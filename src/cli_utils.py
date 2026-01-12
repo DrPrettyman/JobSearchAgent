@@ -188,3 +188,14 @@ def display_job_detail(job: Job):
             print(line)
         print(f"\n  {Colors.DIM}({len(job.full_description)} characters total){Colors.RESET}")
         print()
+
+    # Questions summary
+    if job.questions:
+        answered = sum(1 for q in job.questions if q.get("answer"))
+        total = len(job.questions)
+        print_section("Application Questions")
+        if answered == total:
+            print(f"  {Colors.GREEN}✓ {total} questions answered{Colors.RESET}")
+        else:
+            print(f"  {Colors.YELLOW}○ {answered}/{total} questions answered{Colors.RESET}")
+        print()

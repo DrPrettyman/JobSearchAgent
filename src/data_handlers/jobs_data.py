@@ -21,7 +21,8 @@ class Job:
         full_description: str,
         cover_letter_body: str,
         addressee: str | None,
-        cover_letter_pdf_path: Path | str | None = None
+        cover_letter_pdf_path: Path | str | None = None,
+        questions: list[dict] | None = None
     ):
         self.id = _id
         self.company = company
@@ -37,6 +38,7 @@ class Job:
         self.full_description = full_description
         self.cover_letter_body = cover_letter_body
         self.addressee = addressee
+        self.questions = questions or []
         if cover_letter_pdf_path is not None:
             if isinstance(cover_letter_pdf_path, str):
                 cover_letter_pdf_path = Path(cover_letter_pdf_path)
@@ -59,7 +61,8 @@ class Job:
             "full_description": self.full_description,
             "cover_letter_body": self.cover_letter_body,
             "addressee": self.addressee,
-            "cover_letter_pdf_path": str(self.cover_letter_pdf_path) if self.cover_letter_pdf_path else None
+            "cover_letter_pdf_path": str(self.cover_letter_pdf_path) if self.cover_letter_pdf_path else None,
+            "questions": self.questions
         }
         
     def __bool__(self):
@@ -135,7 +138,8 @@ class Jobs:
                 full_description=_job_data.get("full_description", ""),
                 cover_letter_body=_job_data.get("cover_letter_body", ""),
                 addressee=_job_data.get("addressee"),
-                cover_letter_pdf_path = _job_data.get("cover_letter_pdf_path")
+                cover_letter_pdf_path=_job_data.get("cover_letter_pdf_path"),
+                questions=_job_data.get("questions", [])
             )
         self._jobs = jobs
         

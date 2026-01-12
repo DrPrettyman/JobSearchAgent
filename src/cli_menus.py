@@ -37,6 +37,7 @@ from utils import (
 from online_presence import fetch_online_presence
 from search_jobs import JobSearcher
 from cover_letter_writer import LetterWriter, generate_cover_letter_topics, generate_cover_letter_body
+from question_answerer import generate_answer, generate_answers_batch
 
 # Ordered by precedence (most prestigious first)
 CREDENTIAL_OPTIONS = [
@@ -130,6 +131,155 @@ class JobOptions:
         else:
             print(f"{Colors.RED}Failed to generate cover letter.{Colors.RESET}\n")
 
+    def add_questions(self):
+        """Allow user to paste application questions."""
+        clear_screen()
+        print_header(f"Add Questions: {self.job.title} at {self.job.company}")
+
+        if self.job.questions:
+            print(f"\n{Colors.CYAN}Current questions:{Colors.RESET}")
+            for i, q in enumerate(self.job.questions, 1):
+                print(f"  {Colors.DIM}{i}. {q['question'][:60]}...{Colors.RESET}" if len(q['question']) > 60 else f"  {Colors.DIM}{i}. {q['question']}{Colors.RESET}")
+            print()
+
+        print(f"{Colors.YELLOW}Paste your application questions below (one per line).{Colors.RESET}")
+        print(f"{Colors.DIM}Type 'DONE' on a new line when finished, or 'CANCEL' to abort.{Colors.RESET}\n")
+
+        lines = []
+        while True:
+            try:
+                line = input()
+                if line.strip().upper() == "DONE":
+                    break
+                if line.strip().upper() == "CANCEL":
+                    print(f"\n{Colors.YELLOW}Cancelled.{Colors.RESET}\n")
+                    input("Press Enter to continue...")
+                    return
+                lines.append(line)
+            except EOFError:
+                break
+
+        # Parse questions (non-empty lines)
+        new_questions = [line.strip() for line in lines if line.strip()]
+
+        if not new_questions:
+            print(f"\n{Colors.YELLOW}No questions entered.{Colors.RESET}\n")
+            input("Press Enter to continue...")
+            return
+
+        # Add new questions (without answers)
+        for q in new_questions:
+            self.job.questions.append({"question": q, "answer": ""})
+
+        self.user.job_handler.save()
+        print(f"\n{Colors.GREEN}✓ Added {len(new_questions)} questions{Colors.RESET}\n")
+        input("Press Enter to continue...")
+
+    def generate_question_answers(self):
+        """Generate AI answers for unanswered questions."""
+        if not self.job.questions:
+            print(f"\n{Colors.YELLOW}No questions to answer. Add questions first.{Colors.RESET}\n")
+            input("Press Enter to continue...")
+            return
+
+        # Find questions without answers
+        unanswered = [q for q in self.job.questions if not q.get("answer")]
+
+        if not unanswered:
+            print(f"\n{Colors.YELLOW}All questions already have answers.{Colors.RESET}")
+            regenerate = inquirer.confirm(
+                message="Regenerate all answers?",
+                default=False
+            ).execute()
+            if regenerate:
+                unanswered = self.job.questions
+            else:
+                return
+
+        # Get user background
+        user_background = self.user.comprehensive_summary or combined_documents_as_string(self.user.combined_source_documents)
+
+        if not user_background:
+            print(f"\n{Colors.RED}Cannot generate: no source documents configured.{Colors.RESET}")
+            print(f"{Colors.DIM}Add your resume/CV in User Info first.{Colors.RESET}\n")
+            input("Press Enter to continue...")
+            return
+
+        job_description = self.job.full_description or self.job.description
+
+        print(f"\n{Colors.CYAN}Generating answers for {len(unanswered)} questions...{Colors.RESET}")
+
+        # Use batch generation for efficiency
+        questions_text = [q["question"] for q in unanswered]
+        results = generate_answers_batch(
+            questions=questions_text,
+            job_title=self.job.title,
+            company=self.job.company,
+            job_description=job_description,
+            user_background=user_background
+        )
+
+        if results:
+            # Match results back to questions
+            results_map = {r["question"]: r["answer"] for r in results}
+            for q in self.job.questions:
+                if q["question"] in results_map and results_map[q["question"]]:
+                    q["answer"] = results_map[q["question"]]
+
+            self.user.job_handler.save()
+            print(f"{Colors.GREEN}✓ Generated {len(results)} answers!{Colors.RESET}\n")
+        else:
+            print(f"{Colors.RED}Failed to generate answers.{Colors.RESET}\n")
+
+        input("Press Enter to continue...")
+
+    def view_questions(self):
+        """View all questions and answers for this job."""
+        clear_screen()
+        print_header(f"Questions: {self.job.title} at {self.job.company}")
+
+        if not self.job.questions:
+            print(f"  {Colors.DIM}No questions added yet.{Colors.RESET}\n")
+            input("Press Enter to continue...")
+            return
+
+        for i, qa in enumerate(self.job.questions, 1):
+            print(f"\n{Colors.BOLD}{Colors.CYAN}Q{i}: {qa['question']}{Colors.RESET}")
+            if qa.get("answer"):
+                print(f"{Colors.DIM}{'─' * 40}{Colors.RESET}")
+                # Word wrap the answer
+                words = qa["answer"].split()
+                line = ""
+                for word in words:
+                    if len(line) + len(word) > 76:
+                        print(f"  {line}")
+                        line = ""
+                    line += word + " "
+                if line.strip():
+                    print(f"  {line}")
+            else:
+                print(f"  {Colors.YELLOW}(no answer generated){Colors.RESET}")
+
+        print()
+        print_thick_line()
+        input("\nPress Enter to continue...")
+
+    def clear_questions(self):
+        """Clear all questions for this job."""
+        if not self.job.questions:
+            print(f"\n{Colors.YELLOW}No questions to clear.{Colors.RESET}\n")
+            return
+
+        confirm = inquirer.confirm(
+            message=f"Clear all {len(self.job.questions)} questions?",
+            default=False
+        ).execute()
+
+        if confirm:
+            self.job.questions = []
+            self.user.job_handler.save()
+            print(f"\n{Colors.GREEN}✓ Questions cleared.{Colors.RESET}\n")
+
     def edit_job_description(self):
         """Allow user to paste/edit the job description."""
         clear_screen()
@@ -202,6 +352,19 @@ class JobOptions:
                 choices.append({"name": "📄 Copy plain text cover letter to clipboard", "value": "cover_letter_text_clipboard"})
             else:
                 choices.append({"name": "📄 Generate cover letter", "value": "cover_letter_generate"})
+
+            # Questions section
+            if self.job.questions:
+                unanswered = sum(1 for q in self.job.questions if not q.get("answer"))
+                choices.append({"name": f"❓ View questions ({len(self.job.questions)})", "value": "view_questions"})
+                choices.append({"name": "❓ Add more questions", "value": "add_questions"})
+                if unanswered:
+                    choices.append({"name": f"✨ Generate answers ({unanswered} unanswered)", "value": "generate_answers"})
+                else:
+                    choices.append({"name": "🔄 Regenerate answers", "value": "generate_answers"})
+                choices.append({"name": "🗑️ Clear all questions", "value": "clear_questions"})
+            else:
+                choices.append({"name": "❓ Add application questions", "value": "add_questions"})
             
             if self.job.cover_letter_pdf_path is not None:
                 choices.append({"name": "📄 Open PDF cover letter", "value": "cover_letter_open"})
@@ -273,6 +436,14 @@ class JobOptions:
                 print(f"\n{Colors.GREEN}✓ PDF copied to clipboard{Colors.RESET}\n")
             elif action == "cover_letter_pdf_export":
                 self.export_pdf_cover_letter()
+            elif action == "add_questions":
+                self.add_questions()
+            elif action == "view_questions":
+                self.view_questions()
+            elif action == "generate_answers":
+                self.generate_question_answers()
+            elif action == "clear_questions":
+                self.clear_questions()
        
 
 class UserOptions:
