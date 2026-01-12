@@ -1032,8 +1032,8 @@ class UserOptions:
         """Configure cover letter output directory."""
         clear_screen()
         print_header("Cover Letter Output Directory")
-        current = self.user.cover_letter_output_dir
-        print(f"  {Colors.DIM}Current: {current}{Colors.RESET}\n")
+        old_dir = self.user.cover_letter_output_dir
+        print(f"  {Colors.DIM}Current: {old_dir}{Colors.RESET}\n")
 
         action = inquirer.select(
             message="Action:",
@@ -1044,6 +1044,7 @@ class UserOptions:
             ],
         ).execute()
 
+        new_dir = None
         if action == "custom":
             new_path = inquirer.filepath(
                 message="Select output directory:",
@@ -1052,11 +1053,48 @@ class UserOptions:
             ).execute()
             self.user.cover_letter_output_dir = str(Path(new_path).resolve())
             self.user.save()
-            print(f"Set output directory to: {self.user.cover_letter_output_dir}")
+            new_dir = self.user.cover_letter_output_dir
+            print(f"\n{Colors.GREEN}Set output directory to: {new_dir}{Colors.RESET}")
         elif action == "reset":
             self.user.cover_letter_output_dir = ""
             self.user.save()
-            print(f"Reset to default: {self.user.cover_letter_output_dir}")
+            new_dir = self.user.cover_letter_output_dir
+            print(f"\n{Colors.GREEN}Reset to default: {new_dir}{Colors.RESET}")
+
+        # Move existing PDFs from old to new directory
+        if new_dir and old_dir != new_dir:
+            self._move_cover_letter_pdfs(old_dir, new_dir)
+
+    def _move_cover_letter_pdfs(self, old_dir: Path, new_dir: Path):
+        """Move cover letter PDFs from old directory to new directory."""
+        import shutil
+
+        old_dir = Path(old_dir)
+        new_dir = Path(new_dir)
+
+        if not old_dir.exists():
+            return
+
+        # Find all jobs with cover letter PDFs in the old directory
+        moved_count = 0
+        for job in self.user.job_handler:
+            if job.cover_letter_pdf_path is None:
+                continue
+
+            pdf_path = job.cover_letter_pdf_path
+            # Check if this PDF is in the old directory
+            if pdf_path.parent == old_dir and pdf_path.exists():
+                new_pdf_path = new_dir / pdf_path.name
+                try:
+                    shutil.move(str(pdf_path), str(new_pdf_path))
+                    job.set_cover_letter_pdf_path(new_pdf_path)
+                    moved_count += 1
+                except (OSError, shutil.Error) as e:
+                    print(f"{Colors.RED}Failed to move {pdf_path.name}: {e}{Colors.RESET}")
+
+        if moved_count > 0:
+            self.user.job_handler.save()
+            print(f"{Colors.GREEN}✓ Moved {moved_count} cover letter PDF(s) to new directory{Colors.RESET}")
 
     def configure_ai_credentials(self):
         """Configure AI backend credentials."""
