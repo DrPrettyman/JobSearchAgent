@@ -107,21 +107,21 @@ def print_box(title: str, content: str, width: int = DEFAULT_WIDTH, indent: int 
 def display_job_card(job: Job, index: int = None):
     """Display a single job as a beautiful card."""
     # Index prefix if provided
-    padding = 0
     if index is not None:
-        padding = 3 - len(str(index))
-        prefix = f"{Colors.DIM}[{index}]{Colors.RESET}" + " " * padding
+        prefix = f"{Colors.DIM}[{index}]{Colors.RESET}" + " " * (4 - len(str(index)))
     else:
         prefix = f"{Colors.DIM}[???]{Colors.RESET}"
         
     location = job.location or "Location not specified"
     date = job.date_found[:10] if job.date_found else "Unknown date"
-    print(" "*2 + f"{prefix}{Colors.BOLD}{job.company}{Colors.RESET} {Colors.DIM}📍 {location}{Colors.RESET}")
-    print(" "*(2 + 3 +padding) + f"{Colors.CYAN}{job.title}{Colors.RESET} {Colors.DIM}📅 {date}{Colors.RESET}")
+    padding = " " * 6
+    
+    print(f"{prefix}{Colors.BOLD}{job.company}{Colors.RESET} {Colors.DIM}📍 {location}{Colors.RESET}")
+    print(padding + f"{Colors.CYAN}{job.title}{Colors.RESET} {Colors.DIM}📅 {date}{Colors.RESET}")
 
     # Clickable apply link
     if job.link:
-        print(" "*(2 + 3 +padding) + f"{Colors.BLUE}{hyperlink(job.link)}{Colors.RESET}")
+        print(padding + f"{Colors.BLUE}{hyperlink(job.link)}{Colors.RESET}")
 
     print()
     
