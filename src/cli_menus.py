@@ -403,6 +403,7 @@ class JobOptions:
 
             if self.job.link:
                 choices.append({"name": "🔗 Open job link", "value": "open_link"})
+            choices.append({"name": "🔍 Google this job", "value": "google_job"})
 
             choices.append({"name": "✏️ Edit job details", "value": "edit_details"})
 
@@ -479,6 +480,12 @@ class JobOptions:
                 import webbrowser
                 webbrowser.open(self.job.link)
                 print(f"\n{Colors.DIM}Opening in browser...{Colors.RESET}\n")
+            elif action == "google_job":
+                import webbrowser
+                import urllib.parse
+                query = urllib.parse.quote(f"careers {self.job.company} {self.job.title}")
+                webbrowser.open(f"https://www.google.com/search?q={query}")
+                print(f"\n{Colors.DIM}Opening Google search...{Colors.RESET}\n")
             elif action == "edit_details":
                 self.edit_job_details()
             elif action == "edit_description":
