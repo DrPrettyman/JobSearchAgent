@@ -409,6 +409,7 @@ class JobOptions:
 
             # Option to add/edit job description
             if self.job.full_description:
+                choices.append({"name": "👁️ View full description", "value": "view_description"})
                 choices.append({"name": "📝 Edit job description", "value": "edit_description"})
             else:
                 choices.append({"name": "📝 Add job description", "value": "edit_description"})
@@ -486,6 +487,14 @@ class JobOptions:
                 print(f"\n{Colors.DIM}Opening Google search...{Colors.RESET}\n")
             elif action == "edit_details":
                 self.edit_job_details()
+            elif action == "view_description":
+                clear_screen()
+                print()
+                print_header("Job Description")
+                print(self.job.full_description)
+                print()
+                print_thick_line()
+                user_input = input()
             elif action == "edit_description":
                 self.edit_job_description()
             elif action == "cover_letter_generate":

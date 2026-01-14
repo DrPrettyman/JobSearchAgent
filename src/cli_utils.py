@@ -180,7 +180,7 @@ def display_job_detail(job: Job):
     if job.addressee:
         print_field("Hiring Manager", job.addressee)
     if job.link:
-        print_field("Link", hyperlink(job.link, job.link))
+        print_field("Link", job.link)
     print()
 
     # Description
