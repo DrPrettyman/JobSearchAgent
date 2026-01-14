@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from utils import run_claude
+from prompts import AI_WRITING_GUIDELINES
 
 LATEX_TEMPLATE = r"""\documentclass[11pt]{article}
 
@@ -348,26 +349,9 @@ INSTRUCTIONS:
 - Keep it concise (250-350 words)
 - Use contractions (I'm, I've, wasn't) for a natural tone
 - Vary sentence and paragraph length deliberately
+- Write a letter, not a post. This should read like personal correspondence, not LinkedIn content.
 
-AVOID THESE AI WRITING PATTERNS:
-
-1. Contrastive reframes: Never use "It wasn't just X, it was Y" or "This isn't about X, it's about Y". Just state what it is directly.
-
-2. Negation for false depth: Avoid "more than just", "not only... but also", "not simply about". Make the point without the negation setup.
-
-3. Rule of three: Don't use three parallel items for rhetorical effect ("expertise, passion, and commitment"). Use two items or four, or just one.
-
-4. Paragraph-opening hedges: Never start with "When it comes to...", "In today's rapidly evolving...", "In the realm of...". Start with the actual subject.
-
-5. Flattering intensifiers: Avoid "fascinating", "captivating", "remarkable", "compelling", "truly", "deeply", "genuinely". Don't call anything a "journey" or "transformation". Let facts speak.
-
-6. Excessive transitions: Don't use "Furthermore", "Moreover", "Indeed", "In summary". Don't start multiple sentences with "This" referring back. If ideas connect, the connection should be obvious.
-
-7. Mirrored structure: Don't make every paragraph the same length or follow the same pattern. A two-sentence paragraph followed by a longer one feels human.
-
-8. Em-dashes: Use colons, commas, or periods instead of em-dashes (--).
-
-9. Generic phrases: Never use "I am writing to apply", "aligns closely with", "I would welcome the opportunity", "I am excited to".
+{AI_WRITING_GUIDELINES}
 
 Write the cover letter body now:"""
 
