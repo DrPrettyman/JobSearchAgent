@@ -9,7 +9,7 @@ from datetime import datetime
 from InquirerPy import inquirer
 from InquirerPy.validator import PathValidator
 
-from data_handlers import User, Job, Jobs
+from data_handlers import User, Job, Jobs, JobStatus
 from data_handlers.utils import datetime_iso
 from cli_utils import (
     Colors,
@@ -391,14 +391,19 @@ class JobOptions:
             display_job_detail(self.job)
 
             choices = []
-            if not self.job.applied:
+            # Status transition options based on current status
+            if self.job.status == JobStatus.PENDING:
+                choices.append({"name": "▶ Mark as in progress", "value": "in_progress"})
                 choices.append({"name": "✓ Mark as applied", "value": "apply"})
-            else:
-                choices.append({"name": "○ Mark as not applied", "value": "unapply"})
-
-            if not self.job.discarded:
                 choices.append({"name": "✗ Discard job", "value": "discard"})
-            else:
+            elif self.job.status == JobStatus.IN_PROGRESS:
+                choices.append({"name": "✓ Mark as applied", "value": "apply"})
+                choices.append({"name": "○ Mark as pending", "value": "pending"})
+                choices.append({"name": "✗ Discard job", "value": "discard"})
+            elif self.job.status == JobStatus.APPLIED:
+                choices.append({"name": "○ Mark as not applied", "value": "unapply"})
+                choices.append({"name": "✗ Discard job", "value": "discard"})
+            elif self.job.status == JobStatus.DISCARDED:
                 choices.append({"name": "○ Restore job", "value": "restore"})
 
             if self.job.link:
@@ -454,15 +459,27 @@ class JobOptions:
             if action == "back":
                 break
             elif action == "apply":
-                self.job.applied = True
+                self.job.status = JobStatus.APPLIED
                 self.user.job_handler.save()
                 print(f"\n{Colors.GREEN}✓ Marked as applied!{Colors.RESET}\n")
                 time.sleep(1)
                 return
             elif action == "unapply":
-                self.job.applied = False
+                self.job.status = JobStatus.IN_PROGRESS
                 self.user.job_handler.save()
                 print(f"\n{Colors.YELLOW}○ Marked as not applied.{Colors.RESET}\n")
+                time.sleep(1)
+                return
+            elif action == "in_progress":
+                self.job.status = JobStatus.IN_PROGRESS
+                self.user.job_handler.save()
+                print(f"\n{Colors.CYAN}▶ Marked as in progress.{Colors.RESET}\n")
+                time.sleep(1)
+                return
+            elif action == "pending":
+                self.job.status = JobStatus.PENDING
+                self.user.job_handler.save()
+                print(f"\n{Colors.YELLOW}○ Marked as pending.{Colors.RESET}\n")
                 time.sleep(1)
                 return
             elif action == "discard":
@@ -1582,20 +1599,24 @@ Return ONLY a JSON array of 30 query strings, no other text:
         """View and manage found jobs.
 
         Args:
-            job_type: Filter jobs by type - "pending", "applied", "discarded", or "all"
+            job_type: Filter jobs by type - "pending", "in_progress", "applied", "discarded", or "all"
         """
         while True:
             # Filter jobs based on type (refresh each iteration in case status changed)
             if job_type == "pending":
-                jobs = [j for j in self.user.job_handler if not j.applied and not j.discarded]
+                jobs = [j for j in self.user.job_handler if j.status == JobStatus.PENDING]
                 header_title = "Pending Jobs"
                 empty_msg = "No pending jobs."
+            elif job_type == "in_progress":
+                jobs = [j for j in self.user.job_handler if j.status == JobStatus.IN_PROGRESS]
+                header_title = "In Progress Jobs"
+                empty_msg = "No jobs in progress."
             elif job_type == "applied":
-                jobs = [j for j in self.user.job_handler if j.applied]
+                jobs = [j for j in self.user.job_handler if j.status == JobStatus.APPLIED]
                 header_title = "Applied Jobs"
                 empty_msg = "No applied jobs yet."
             elif job_type == "discarded":
-                jobs = [j for j in self.user.job_handler if j.discarded]
+                jobs = [j for j in self.user.job_handler if j.status == JobStatus.DISCARDED]
                 header_title = "Discarded Jobs"
                 empty_msg = "No discarded jobs."
             else:
@@ -1611,7 +1632,7 @@ Return ONLY a JSON array of 30 query strings, no other text:
                 input("Press Enter to continue...")
                 return
 
-            print(f"  {Colors.GREEN}✓ {self.user.job_handler.number_applied} applied{Colors.RESET}  •  {Colors.YELLOW}○ {self.user.job_handler.number_pending} pending{Colors.RESET}  •  {Colors.RED}✗ {self.user.job_handler.number_discarded} discarded{Colors.RESET}  •  {Colors.DIM}{len(self.user.job_handler)} total{Colors.RESET}\n")
+            print(f"  {Colors.GREEN}✓ {self.user.job_handler.number_applied} applied{Colors.RESET}  •  {Colors.CYAN}▶ {self.user.job_handler.number_in_progress} in progress{Colors.RESET}  •  {Colors.YELLOW}○ {self.user.job_handler.number_pending} pending{Colors.RESET}  •  {Colors.RED}✗ {self.user.job_handler.number_discarded} discarded{Colors.RESET}\n")
 
             # Display jobs as cards
             for i, job in enumerate(jobs, 1):
@@ -1780,12 +1801,13 @@ Return ONLY a JSON array of 30 query strings, no other text:
             print_header(f"Welcome {self.user.name}")
 
             num_pending = self.user.job_handler.number_pending
+            num_in_progress = self.user.job_handler.number_in_progress
             num_applied = self.user.job_handler.number_applied
             num_discarded = self.user.job_handler.number_discarded
             num_total = len(self.user.job_handler)
 
             if num_total:
-                print(f"  {Colors.GREEN}✓ {num_applied} applied{Colors.RESET}  •  {Colors.YELLOW}○ {num_pending} pending{Colors.RESET}  •  {Colors.RED}✗ {num_discarded} discarded{Colors.RESET}  •  {Colors.DIM}{num_total} total{Colors.RESET}\n")
+                print(f"  {Colors.GREEN}✓ {num_applied} applied{Colors.RESET}  •  {Colors.CYAN}▶ {num_in_progress} in progress{Colors.RESET}  •  {Colors.YELLOW}○ {num_pending} pending{Colors.RESET}  •  {Colors.RED}✗ {num_discarded} discarded{Colors.RESET}\n")
 
             choices=[
                 {"name": "View/Edit User Info", "value": "user"},
@@ -1793,6 +1815,8 @@ Return ONLY a JSON array of 30 query strings, no other text:
             ]
             if num_pending:
                 choices.append({"name": f"○ View pending jobs ({num_pending})", "value": "jobs_pending"})
+            if num_in_progress:
+                choices.append({"name": f"▶ View in progress jobs ({num_in_progress})", "value": "jobs_in_progress"})
             if num_applied:
                 choices.append({"name": f"✓ View applied jobs ({num_applied})", "value": "jobs_applied"})
             if num_discarded:
@@ -1816,6 +1840,8 @@ Return ONLY a JSON array of 30 query strings, no other text:
                 self.search_menu()
             elif action == "jobs_pending":
                 self.jobs_menu(job_type="pending")
+            elif action == "jobs_in_progress":
+                self.jobs_menu(job_type="in_progress")
             elif action == "jobs_applied":
                 self.jobs_menu(job_type="applied")
             elif action == "jobs_discarded":

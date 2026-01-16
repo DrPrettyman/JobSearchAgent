@@ -1,7 +1,7 @@
 """CLI formatting utilities."""
 import os
 
-from data_handlers import Job
+from data_handlers import Job, JobStatus
 
 DEFAULT_WIDTH = 120
 
@@ -164,12 +164,14 @@ def display_job_detail(job: Job):
     print_header(f"{job.title} at {job.company}")
 
     # Status badge
-    if job.applied:
+    if job.status == JobStatus.APPLIED:
         print(f"  {Colors.GREEN}━━━ ✓ APPLIED ━━━{Colors.RESET}\n")
-    elif job.discarded:
+    elif job.status == JobStatus.IN_PROGRESS:
+        print(f"  {Colors.CYAN}━━━ ▶ IN PROGRESS ━━━{Colors.RESET}\n")
+    elif job.status == JobStatus.DISCARDED:
         print(f"  {Colors.RED}━━━ ✗ DISCARDED ━━━{Colors.RESET}\n")
     else:
-        print(f"  {Colors.YELLOW}━━━ ○ NOT YET APPLIED ━━━{Colors.RESET}\n")
+        print(f"  {Colors.YELLOW}━━━ ○ PENDING ━━━{Colors.RESET}\n")
 
     # Main info
     print_section("Position Details")

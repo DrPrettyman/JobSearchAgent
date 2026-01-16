@@ -1,6 +1,6 @@
 from pathlib import Path
 import json
-from .jobs_data import Jobs
+from .jobs_data import Jobs, JobStatus
 from .query_data import SearchQueries
 
 
@@ -286,27 +286,27 @@ class User:
         job = self.job_handler.get(job_id)
         if job is None:
             return
-        
-        job.discarded = True
-        
+
+        job.status = JobStatus.DISCARDED
+
         if job.query_ids:
             self.query_handler.write_results(
                 {qid: -1 for qid in job.query_ids}
             )
-        
+
         self.job_handler.save()
-            
+
     def restore_job(self, job_id):
         job = self.job_handler.get(job_id)
         if job is None:
             return
-        
-        job.discarded = False
-        
+
+        job.status = JobStatus.PENDING
+
         if job.query_ids:
             self.query_handler.write_results(
                 {qid: 1 for qid in job.query_ids}
             )
-            
+
         self.job_handler.save()
         

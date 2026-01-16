@@ -1,7 +1,15 @@
 from pathlib import Path
 import json
 import re
+from enum import Enum
 from .utils import datetime_iso
+
+
+class JobStatus(str, Enum):
+    PENDING = "pending"
+    IN_PROGRESS = "in_progress"
+    APPLIED = "applied"
+    DISCARDED = "discarded"
 
 
 class Job:
@@ -11,8 +19,7 @@ class Job:
         company: str,
         title: str,
         date_found: str,
-        applied: bool,
-        discarded: bool,
+        status: JobStatus,
         link: str,
         location: str,
         description: str,
@@ -29,8 +36,7 @@ class Job:
         self.company = company
         self.title = title
         self.date_found = date_found
-        self.applied = applied
-        self.discarded = discarded
+        self.status = status
         self.link = link
         self.location = location
         self.description = description
@@ -53,8 +59,7 @@ class Job:
             "company": self.company,
             "title": self.title,
             "date_found": self.date_found,
-            "applied": self.applied,
-            "discarded": self.discarded,
+            "status": self.status.value,
             "link": self.link,
             "location": self.location,
             "description": self.description,
@@ -69,7 +74,7 @@ class Job:
         }
         
     def __bool__(self):
-        return self.applied
+        return self.status == JobStatus.APPLIED
     
     @property
     def cover_letter_pdf_path(self) -> Path | None:
@@ -126,13 +131,22 @@ class Jobs:
             
         jobs = dict()
         for _id, _job_data in jobs_data.items():
+            # Migration: convert old applied/discarded booleans to status enum
+            if "status" in _job_data:
+                status = JobStatus(_job_data["status"])
+            elif _job_data.get("applied"):
+                status = JobStatus.APPLIED
+            elif _job_data.get("discarded"):
+                status = JobStatus.DISCARDED
+            else:
+                status = JobStatus.PENDING
+
             jobs[_id] = Job(
                 _id=_id,
                 company=_job_data.get("company", ""),
                 title=_job_data.get("title", ""),
                 date_found=_job_data.get("date_found", ""),
-                applied=_job_data.get("applied", False),
-                discarded=_job_data.get("discarded", False),
+                status=status,
                 link=_job_data.get("link", ""),
                 location=_job_data.get("location", ""),
                 description=_job_data.get("description", ""),
@@ -162,20 +176,19 @@ class Jobs:
     
     @property
     def number_applied(self) -> int:
-        return sum(1 for job in self if job.applied)
+        return sum(1 for job in self if job.status == JobStatus.APPLIED)
 
     @property
-    def number_not_applied(self) -> int:
-        return sum(1 for job in self if not job.applied)
+    def number_in_progress(self) -> int:
+        return sum(1 for job in self if job.status == JobStatus.IN_PROGRESS)
 
     @property
     def number_discarded(self) -> int:
-        return sum(1 for job in self if job.discarded)
+        return sum(1 for job in self if job.status == JobStatus.DISCARDED)
 
     @property
     def number_pending(self) -> int:
-        """Jobs that are not applied and not discarded."""
-        return sum(1 for job in self if not job.applied and not job.discarded)
+        return sum(1 for job in self if job.status == JobStatus.PENDING)
 
     def to_dict(self):
         return {_id: _job.to_dict() for _id, _job in self._jobs.items()}
@@ -214,8 +227,7 @@ class Jobs:
             company=company,
             title=title,
             date_found=datetime_iso(),
-            applied=False,
-            discarded=False,
+            status=JobStatus.PENDING,
             link=link,
             location=location,
             description=description,
