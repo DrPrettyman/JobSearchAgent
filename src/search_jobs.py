@@ -22,7 +22,9 @@ def search_query(query_str: str) -> list[dict]:
 
     prompt = f"""Search the web for this job search query: {query_str}
 
-Find job postings that match this query. Extract basic info from search results.
+Find job postings that match this query. 
+Follow links to find the specific job posting if possible (the page which contains the job description), not a page listing many jobs.
+Extract basic info from results.
 
 Return ONLY a JSON array of job objects, no other text:
 [
