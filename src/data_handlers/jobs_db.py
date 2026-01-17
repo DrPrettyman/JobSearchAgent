@@ -30,7 +30,6 @@ class Job:
         link: str,
         location: str,
         description: str,
-        fit_notes: list[dict],
         cover_letter_topics: list[dict],
         full_description: str,
         cover_letter_body: str,
@@ -50,7 +49,6 @@ class Job:
         self._link = link
         self._location = location
         self._description = description
-        self._fit_notes = fit_notes
         self._cover_letter_topics = cover_letter_topics
         self._full_description = full_description
         self._cover_letter_body = cover_letter_body
@@ -91,7 +89,6 @@ class Job:
             link=link,
             location=location,
             description=description,
-            fit_notes=[],
             cover_letter_topics=[],
             full_description=full_description,
             cover_letter_body="",
@@ -113,7 +110,6 @@ class Job:
             description=job._description,
             full_description=job._full_description,
             addressee=job._addressee,
-            fit_notes=job._fit_notes,
             status=job._status.value,
             query_ids=job._query_ids
         )
@@ -197,15 +193,6 @@ class Job:
     def addressee(self, value: str | None):
         self._addressee = value
         self._db.update_job_field(self._username, self._id, "addressee", value)
-
-    @property
-    def fit_notes(self) -> list[dict]:
-        return self._fit_notes
-
-    @fit_notes.setter
-    def fit_notes(self, value: list[dict]):
-        self._fit_notes = value
-        self._db.update_job_field(self._username, self._id, "fit_notes", value)
 
     @property
     def status(self) -> JobStatus:
@@ -321,16 +308,6 @@ class JobsDB:
         self._username = username
         self._temp_file = db_path.parent / "search_temp.jsonl"
         self._jobs_cache: dict[str, Job] = {}
-
-        # Check for migration from JSON
-        json_path = db_path.parent / "jobs.json"
-        if json_path.exists() and self._db.count_jobs(username) == 0:
-            migrated = self._db.migrate_jobs_from_json(json_path, username)
-            if migrated > 0:
-                # Rename old JSON file as backup
-                backup_path = db_path.parent / "jobs.json.bak"
-                json_path.rename(backup_path)
-
         self._load_all()
 
     @property
@@ -358,7 +335,6 @@ class JobsDB:
             link=data["link"],
             location=data["location"],
             description=data["description"],
-            fit_notes=data["fit_notes"],
             cover_letter_topics=data.get("cover_letter_topics", []),
             full_description=data["full_description"],
             cover_letter_body=data.get("cover_letter_body", ""),

@@ -1,7 +1,6 @@
 """SQLite database connection and schema management."""
 
 import sqlite3
-import json
 from pathlib import Path
 from contextlib import contextmanager
 from .utils import datetime_iso
@@ -20,7 +19,6 @@ CREATE TABLE IF NOT EXISTS jobs (
     description TEXT DEFAULT '',
     full_description TEXT DEFAULT '',
     addressee TEXT,
-    fit_notes TEXT DEFAULT '[]',
     PRIMARY KEY (username, job_id)
 );
 
@@ -38,10 +36,20 @@ CREATE TABLE IF NOT EXISTS job_status (
 CREATE TABLE IF NOT EXISTS job_cover_letters (
     username TEXT NOT NULL,
     job_id TEXT NOT NULL,
-    cover_letter_topics TEXT DEFAULT '[]',
     cover_letter_body TEXT DEFAULT '',
     cover_letter_pdf_path TEXT,
     PRIMARY KEY (username, job_id),
+    FOREIGN KEY (username, job_id) REFERENCES jobs(username, job_id) ON DELETE CASCADE
+);
+
+-- Cover letter topics (normalized)
+CREATE TABLE IF NOT EXISTS cover_letter_topics (
+    username TEXT NOT NULL,
+    job_id TEXT NOT NULL,
+    position INTEGER NOT NULL,
+    topic TEXT NOT NULL,
+    relevant_experience TEXT NOT NULL,
+    PRIMARY KEY (username, job_id, position),
     FOREIGN KEY (username, job_id) REFERENCES jobs(username, job_id) ON DELETE CASCADE
 );
 
@@ -124,10 +132,9 @@ class Database:
     def insert_job(self, username: str, job_id: str, company: str, title: str,
                    date_found: str, link: str, location: str = "",
                    description: str = "", full_description: str = "",
-                   addressee: str = None, fit_notes: list = None,
-                   status: str = "pending", query_ids: list = None):
+                   addressee: str = None, status: str = "pending",
+                   query_ids: list = None):
         """Insert a new job with all related records."""
-        fit_notes = fit_notes or []
         query_ids = query_ids or []
         now = datetime_iso()
 
@@ -136,10 +143,10 @@ class Database:
             conn.execute("""
                 INSERT INTO jobs (username, job_id, company, title, date_found,
                                   link, location, description, full_description,
-                                  addressee, fit_notes)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                  addressee)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (username, job_id, company, title, date_found, link, location,
-                  description, full_description, addressee, json.dumps(fit_notes)))
+                  description, full_description, addressee))
 
             # Status record
             conn.execute("""
@@ -172,7 +179,6 @@ class Database:
                 return None
 
             job = dict(row)
-            job["fit_notes"] = json.loads(job["fit_notes"])
 
             # Status
             status_row = conn.execute("""
@@ -185,13 +191,22 @@ class Database:
                 SELECT * FROM job_cover_letters WHERE username = ? AND job_id = ?
             """, (username, job_id)).fetchone()
             if cl_row:
-                job["cover_letter_topics"] = json.loads(cl_row["cover_letter_topics"])
                 job["cover_letter_body"] = cl_row["cover_letter_body"]
                 job["cover_letter_pdf_path"] = cl_row["cover_letter_pdf_path"]
             else:
-                job["cover_letter_topics"] = []
                 job["cover_letter_body"] = ""
                 job["cover_letter_pdf_path"] = None
+
+            # Cover letter topics (from normalized table)
+            topic_rows = conn.execute("""
+                SELECT topic, relevant_experience FROM cover_letter_topics
+                WHERE username = ? AND job_id = ?
+                ORDER BY position
+            """, (username, job_id)).fetchall()
+            job["cover_letter_topics"] = [
+                {"topic": r["topic"], "relevant_experience": r["relevant_experience"]}
+                for r in topic_rows
+            ]
 
             # Query IDs
             qid_rows = conn.execute("""
@@ -257,12 +272,9 @@ class Database:
     def update_job_field(self, username: str, job_id: str, field: str, value):
         """Update a single field in the jobs table."""
         allowed_fields = {"company", "title", "link", "location", "description",
-                          "full_description", "addressee", "fit_notes"}
+                          "full_description", "addressee"}
         if field not in allowed_fields:
             raise ValueError(f"Cannot update field: {field}")
-
-        if field == "fit_notes":
-            value = json.dumps(value)
 
         with self.connection() as conn:
             conn.execute(f"""
@@ -275,10 +287,19 @@ class Database:
         """Update cover letter fields."""
         with self.connection() as conn:
             if topics is not None:
+                # Clear existing topics and insert new ones
                 conn.execute("""
-                    UPDATE job_cover_letters SET cover_letter_topics = ?
+                    DELETE FROM cover_letter_topics
                     WHERE username = ? AND job_id = ?
-                """, (json.dumps(topics), username, job_id))
+                """, (username, job_id))
+                for position, topic_dict in enumerate(topics):
+                    conn.execute("""
+                        INSERT INTO cover_letter_topics
+                        (username, job_id, position, topic, relevant_experience)
+                        VALUES (?, ?, ?, ?, ?)
+                    """, (username, job_id, position,
+                          topic_dict.get("topic", ""),
+                          topic_dict.get("relevant_experience", "")))
             if body is not None:
                 conn.execute("""
                     UPDATE job_cover_letters SET cover_letter_body = ?
@@ -354,73 +375,6 @@ class Database:
                 WHERE username = ? AND job_id = ?
             """, (username, job_id)).fetchall()
             return [r["query_id"] for r in rows]
-
-    def migrate_jobs_from_json(self, json_path: Path, username: str) -> int:
-        """Migrate jobs from JSON file to database.
-
-        Returns number of jobs migrated.
-        """
-        from uuid import uuid4
-
-        if not json_path.exists():
-            return 0
-
-        with open(json_path, "r") as f:
-            jobs_data = json.load(f)
-
-        if not jobs_data:
-            return 0
-
-        count = 0
-        for old_id, data in jobs_data.items():
-            # Generate new UUID
-            job_id = str(uuid4())
-
-            # Determine status from old boolean fields
-            if data.get("status"):
-                status = data["status"]
-            elif data.get("applied"):
-                status = "applied"
-            elif data.get("discarded"):
-                status = "discarded"
-            else:
-                status = "pending"
-
-            # Insert job
-            self.insert_job(
-                username=username,
-                job_id=job_id,
-                company=data.get("company", ""),
-                title=data.get("title", ""),
-                date_found=data.get("date_found", datetime_iso()),
-                link=data.get("link", ""),
-                location=data.get("location", ""),
-                description=data.get("description", ""),
-                full_description=data.get("full_description", ""),
-                addressee=data.get("addressee"),
-                fit_notes=data.get("fit_notes", []),
-                status=status,
-                query_ids=data.get("query_ids", [])
-            )
-
-            # Update cover letter data
-            self.update_job_cover_letter(
-                username=username,
-                job_id=job_id,
-                topics=data.get("cover_letter_topics", []),
-                body=data.get("cover_letter_body", ""),
-                pdf_path=data.get("cover_letter_pdf_path")
-            )
-
-            # Add questions
-            for q in data.get("questions", []):
-                q_id = self.add_job_question(username, job_id, q.get("question", ""))
-                if q.get("answer"):
-                    self.update_job_question_answer(username, job_id, q_id, q["answer"])
-
-            count += 1
-
-        return count
 
     # --- Search query operations ---
 
