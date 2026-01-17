@@ -65,9 +65,29 @@ CREATE TABLE IF NOT EXISTS job_questions (
     FOREIGN KEY (username, job_id) REFERENCES jobs(username, job_id) ON DELETE CASCADE
 );
 
+-- Search queries
+CREATE TABLE IF NOT EXISTS search_queries (
+    username TEXT NOT NULL,
+    query_id INTEGER NOT NULL,
+    query TEXT NOT NULL,
+    removed INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (username, query_id)
+);
+
+-- Search query results log
+CREATE TABLE IF NOT EXISTS search_query_results (
+    username TEXT NOT NULL,
+    query_id INTEGER NOT NULL,
+    timestamp TEXT NOT NULL,
+    potential_leads INTEGER NOT NULL,
+    FOREIGN KEY (username, query_id) REFERENCES search_queries(username, query_id) ON DELETE CASCADE
+);
+
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_job_status_status ON job_status(username, status);
 CREATE INDEX IF NOT EXISTS idx_jobs_link ON jobs(username, link);
+CREATE INDEX IF NOT EXISTS idx_search_query_results ON search_query_results(username, query_id);
 """
 
 
@@ -198,7 +218,7 @@ class Database:
 
         return [self.get_job(username, row["job_id"]) for row in rows]
 
-    def has_link(self, username: str, link: str) -> bool:
+    def job_has_link(self, username: str, link: str) -> bool:
         """Check if a job with this link exists."""
         with self.connection() as conn:
             row = conn.execute("""
@@ -214,7 +234,7 @@ class Database:
             """, (username,)).fetchone()
             return row["count"]
 
-    def count_by_status(self, username: str, status: str) -> int:
+    def count_jobs_by_status(self, username: str, status: str) -> int:
         """Count jobs with a specific status."""
         with self.connection() as conn:
             row = conn.execute("""
@@ -225,7 +245,7 @@ class Database:
 
     # --- Update operations ---
 
-    def update_status(self, username: str, job_id: str, status: str):
+    def update_job_status(self, username: str, job_id: str, status: str):
         """Update job status."""
         now = datetime_iso()
         with self.connection() as conn:
@@ -249,9 +269,9 @@ class Database:
                 UPDATE jobs SET {field} = ? WHERE username = ? AND job_id = ?
             """, (value, username, job_id))
 
-    def update_cover_letter(self, username: str, job_id: str,
-                            topics: list = None, body: str = None,
-                            pdf_path: str = None):
+    def update_job_cover_letter(self, username: str, job_id: str,
+                                topics: list = None, body: str = None,
+                                pdf_path: str = None):
         """Update cover letter fields."""
         with self.connection() as conn:
             if topics is not None:
@@ -270,9 +290,9 @@ class Database:
                     WHERE username = ? AND job_id = ?
                 """, (pdf_path, username, job_id))
 
-    # --- Questions operations ---
+    # --- Job questions operations ---
 
-    def add_question(self, username: str, job_id: str, question: str) -> int:
+    def add_job_question(self, username: str, job_id: str, question: str) -> int:
         """Add a question and return its ID."""
         with self.connection() as conn:
             # Get next question_id for this job
@@ -289,8 +309,8 @@ class Database:
 
             return next_id
 
-    def update_question_answer(self, username: str, job_id: str,
-                               question_id: int, answer: str):
+    def update_job_question_answer(self, username: str, job_id: str,
+                                   question_id: int, answer: str):
         """Update answer for a question."""
         with self.connection() as conn:
             conn.execute("""
@@ -298,14 +318,14 @@ class Database:
                 WHERE username = ? AND job_id = ? AND question_id = ?
             """, (answer, username, job_id, question_id))
 
-    def clear_questions(self, username: str, job_id: str):
+    def clear_job_questions(self, username: str, job_id: str):
         """Remove all questions for a job."""
         with self.connection() as conn:
             conn.execute("""
                 DELETE FROM job_questions WHERE username = ? AND job_id = ?
             """, (username, job_id))
 
-    def get_questions(self, username: str, job_id: str) -> list[dict]:
+    def get_job_questions(self, username: str, job_id: str) -> list[dict]:
         """Get all questions for a job."""
         with self.connection() as conn:
             rows = conn.execute("""
@@ -316,9 +336,9 @@ class Database:
             return [{"id": r["question_id"], "question": r["question"],
                      "answer": r["answer"]} for r in rows]
 
-    # --- Query IDs operations ---
+    # --- Job query IDs operations ---
 
-    def add_query_id(self, username: str, job_id: str, query_id: int):
+    def add_job_query_id(self, username: str, job_id: str, query_id: int):
         """Add a query ID to a job."""
         with self.connection() as conn:
             conn.execute("""
@@ -326,7 +346,7 @@ class Database:
                 VALUES (?, ?, ?)
             """, (username, job_id, query_id))
 
-    def get_query_ids(self, username: str, job_id: str) -> list[int]:
+    def get_job_query_ids(self, username: str, job_id: str) -> list[int]:
         """Get all query IDs for a job."""
         with self.connection() as conn:
             rows = conn.execute("""
@@ -335,7 +355,7 @@ class Database:
             """, (username, job_id)).fetchall()
             return [r["query_id"] for r in rows]
 
-    def migrate_from_json(self, json_path: Path, username: str) -> int:
+    def migrate_jobs_from_json(self, json_path: Path, username: str) -> int:
         """Migrate jobs from JSON file to database.
 
         Returns number of jobs migrated.
@@ -384,7 +404,7 @@ class Database:
             )
 
             # Update cover letter data
-            self.update_cover_letter(
+            self.update_job_cover_letter(
                 username=username,
                 job_id=job_id,
                 topics=data.get("cover_letter_topics", []),
@@ -394,10 +414,79 @@ class Database:
 
             # Add questions
             for q in data.get("questions", []):
-                q_id = self.add_question(username, job_id, q.get("question", ""))
+                q_id = self.add_job_question(username, job_id, q.get("question", ""))
                 if q.get("answer"):
-                    self.update_question_answer(username, job_id, q_id, q["answer"])
+                    self.update_job_question_answer(username, job_id, q_id, q["answer"])
 
             count += 1
 
         return count
+
+    # --- Search query operations ---
+
+    def insert_query(self, username: str, query: str) -> int:
+        """Insert a new search query and return its ID."""
+        now = datetime_iso()
+        with self.connection() as conn:
+            # Get next query_id for this user
+            row = conn.execute("""
+                SELECT COALESCE(MAX(query_id), 0) + 1 as next_id
+                FROM search_queries WHERE username = ?
+            """, (username,)).fetchone()
+            next_id = row["next_id"]
+
+            conn.execute("""
+                INSERT INTO search_queries (username, query_id, query, removed, created_at)
+                VALUES (?, ?, ?, 0, ?)
+            """, (username, next_id, query, now))
+
+            return next_id
+
+    def get_all_queries(self, username: str) -> list[dict]:
+        """Get all queries for a user (including removed)."""
+        with self.connection() as conn:
+            rows = conn.execute("""
+                SELECT query_id, query, removed, created_at
+                FROM search_queries WHERE username = ?
+                ORDER BY query_id
+            """, (username,)).fetchall()
+            return [{"query_id": r["query_id"], "query": r["query"],
+                     "removed": bool(r["removed"]), "created_at": r["created_at"]}
+                    for r in rows]
+
+    def update_query_removed(self, username: str, query_id: int, removed: bool):
+        """Update the removed flag for a query."""
+        with self.connection() as conn:
+            conn.execute("""
+                UPDATE search_queries SET removed = ?
+                WHERE username = ? AND query_id = ?
+            """, (1 if removed else 0, username, query_id))
+
+    def insert_query_result(self, username: str, query_id: int, potential_leads: int):
+        """Log a search result for a query."""
+        now = datetime_iso()
+        with self.connection() as conn:
+            conn.execute("""
+                INSERT INTO search_query_results (username, query_id, timestamp, potential_leads)
+                VALUES (?, ?, ?, ?)
+            """, (username, query_id, now, potential_leads))
+
+    def insert_query_results(self, username: str, results: dict[int, int]):
+        """Log multiple search results at once."""
+        now = datetime_iso()
+        with self.connection() as conn:
+            for query_id, potential_leads in results.items():
+                conn.execute("""
+                    INSERT INTO search_query_results (username, query_id, timestamp, potential_leads)
+                    VALUES (?, ?, ?, ?)
+                """, (username, query_id, now, potential_leads))
+
+    def get_query_results_total(self, username: str, query_id: int) -> int:
+        """Get total potential leads found for a query."""
+        with self.connection() as conn:
+            row = conn.execute("""
+                SELECT COALESCE(SUM(potential_leads), 0) as total
+                FROM search_query_results
+                WHERE username = ? AND query_id = ?
+            """, (username, query_id)).fetchone()
+            return row["total"]

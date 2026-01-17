@@ -28,7 +28,6 @@ from cli_utils import (
 from utils import (
     combined_documents_as_string,
     run_claude,
-    extract_url_slug,
     summarize_source_documents,
     summarize_online_presence,
     combine_documents,
@@ -56,15 +55,17 @@ class JobOptions:
     @property
     def letter_compiler(self):
         if self._letter_compiler is None:
+            # Get first non-LinkedIn website for the cover letter header
+            non_linkedin_sites = [s for s in self.user.websites if "linkedin.com" not in s.lower()]
             self._letter_compiler = LetterWriter(
                 company=self.job.company,
                 title=self.job.title,
                 cover_letter_body=self.job.cover_letter_body,
                 user_name=self.user.name,
                 user_email=self.user.email,
-                user_linkedin_ext=self.user.linkedin_extension,
+                user_linkedin_url=self.user.linkedin_url,
                 user_credentials=self.user.credentials,
-                user_website=self.user.websites[0] if self.user.websites else None,
+                user_website=non_linkedin_sites[0] if non_linkedin_sites else None,
                 addressee=self.job.addressee
             )
         return self._letter_compiler
@@ -572,11 +573,10 @@ class UserOptions:
 
         # Step 2: Online presence
         print_section("Step 2: Online Presence")
-        self.configure_linkedin()
         self.configure_websites()
 
         # Fetch online presence if URLs configured
-        has_online_urls = self.user.linkedin_extension or self.user.websites
+        has_online_urls = bool(self.user.websites)
         if has_online_urls:
             fetch = inquirer.confirm(
                 message="Fetch content from your online profiles?",
@@ -641,7 +641,7 @@ class UserOptions:
         print_section("Basic Information")
         print_field("Name", self.user.name_with_credentials if self.user.name else _not_set)
         print_field("Email", self.user.email if self.user.email else _not_set)
-        print_field("LinkedIn", self.user.linkedin_url if self.user.linkedin_extension else _not_set)
+        print_field("LinkedIn", self.user.linkedin_url if self.user.linkedin_url else _not_set)
         
         desired_title_list = ", ".join(f"'{s}'" for s in self.user.desired_job_titles) if self.user.desired_job_titles else _not_set
         desired_locations_list = ", ".join(f"'{s}'" for s in self.user.desired_job_locations) if self.user.desired_job_locations else _not_set
@@ -749,29 +749,9 @@ class UserOptions:
         self.user.credentials = selected
         self.user.save()
 
-    def configure_linkedin(self):
-        """Configure LinkedIn profile."""
-        clear_screen()
-        print_header("LinkedIn")
-        current = self.user.linkedin_extension
-        if current:
-            print(f"  {Colors.DIM}Current: {self.user.linkedin_url}{Colors.RESET}\n")
-        else:
-            print(f"  {Colors.DIM}Not configured{Colors.RESET}\n")
-
-        value = inquirer.text(
-            message="LinkedIn URL or username:",
-            default=current,
-        ).execute()
-        if value:
-            self.user.linkedin_extension = extract_url_slug(value)
-        else:
-            self.user.linkedin_extension = ""
-        self.user.save()
-
     def configure_websites(self):
         """Configure personal websites/portfolios."""
-        websites_before = set(self.user.all_websites)
+        websites_before = set(self.user.websites)
         while True:
             clear_screen()
             print_header("Websites")
@@ -804,21 +784,10 @@ class UserOptions:
                 if to_remove:
                     self.user.remove_website(to_remove)
 
-        # Check for LinkedIn URLs in websites
-        linkedin_urls = [s for s in self.user.websites if "linkedin.com" in s.lower()]
-        for url in linkedin_urls:
-            parsed = extract_url_slug(url)
-            if self.user.linkedin_extension:
-                self.user.remove_website(url)
-                print("Removed LinkedIn URL from websites (already configured)")
-            else:
-                self.user.linkedin_extension = parsed
-                self.user.remove_website(url)
-                print(f"Moved LinkedIn URL to dedicated field: {parsed}")
         self.user.save()
-        
-        websites_after = set(self.user.all_websites)
-        
+
+        websites_after = set(self.user.websites)
+
         if websites_before != websites_after:
             self.refresh_online_presence
 
@@ -1183,10 +1152,7 @@ class UserOptions:
 
     def refresh_online_presence(self):
         """Fetch online presence and regenerate summary."""
-        urls = []
-        if self.user.linkedin_url:
-            urls.append(self.user.linkedin_url)
-        urls.extend(self.user.websites)
+        urls = self.user.websites
 
         if not urls:
             print("No online presence URLs configured.")
@@ -1480,7 +1446,6 @@ Return ONLY a JSON array of 30 query strings, no other text:
                     {"name": "Edit name", "value": self.configure_name},
                     {"name": "Edit email", "value": self.configure_email},
                     {"name": "Edit credentials", "value": self.configure_credentials},
-                    {"name": "Edit LinkedIn", "value": self.configure_linkedin},
                     {"name": "Edit websites", "value": self.configure_websites},
                     {"name": "Edit source documents (CV etc.)", "value": self.configure_source_documents},
                     {"name": "Edit job titles", "value": self.configure_job_titles},

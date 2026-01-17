@@ -114,25 +114,25 @@ def compile_latex_to_pdf(latex_source: str, output_path: Path) -> bool:
 
 
 class LetterWriter:
-    def __init__(self, 
+    def __init__(self,
         company: str,
         title: str,
         cover_letter_body: str,
         user_name: str,
         user_email: str,
-        user_linkedin_ext: str,
+        user_linkedin_url: str = "",
         user_credentials: list[str] = None,
         user_website: str = None,
         addressee: str = None):
-        
+
         self.company: str = company
         self.title: str = title
         self.cover_letter_body: str = cover_letter_body
-        
+
         self.user_name = user_name
         self.user_credentials = user_credentials  # e.g. ["PhD", "MBA"]
         self.user_email = user_email
-        self.user_linkedin_ext = user_linkedin_ext
+        self.user_linkedin_url = user_linkedin_url
         self.user_website = user_website
         
         if addressee:
@@ -154,15 +154,19 @@ class LetterWriter:
     @property
     def contact_info(self) -> str:
         email = r"\href{mailto:email}{email}".replace("email", self.user_email)
-        linkedin = r"\href{https://linkedin.com/in/ext}{in/ext}".replace("ext", self.user_linkedin_ext)
+        contact_items = [email]
 
         if self.user_website:
             website = r"\href{<FULL>}{<STRIPPED>}".replace("<FULL>", self.user_website).replace("<STRIPPED>", re.sub(r"https?://", "", self.user_website))
-            contact_info = [email, website, linkedin]
-        else:
-            contact_info = [email, linkedin]
+            contact_items.append(website)
 
-        return r" \textbar{} ".join(contact_info)
+        if self.user_linkedin_url:
+            # Extract display text like "in/username" from full URL
+            display = re.sub(r"https?://(www\.)?linkedin\.com/", "", self.user_linkedin_url).rstrip("/")
+            linkedin = r"\href{" + self.user_linkedin_url + r"}{" + display + r"}"
+            contact_items.append(linkedin)
+
+        return r" \textbar{} ".join(contact_items)
             
     @property
     def full_name_for_header(self) -> str:

@@ -22,7 +22,6 @@ class User:
                         "name": "",
                         "email": "",
                         "credentials": [],
-                        "linkedin_extension": "",
                         "websites": [],
                         "source_document_paths": [],
                         "desired_job_titles": [],
@@ -44,14 +43,13 @@ class User:
             username=username
         )
         self.query_handler = SearchQueries(
-            queries_path=directory_path / "search_queries.csv",
-            results_path=directory_path / "search_query_results.csv"
+            db=self.job_handler.database,
+            username=username
         )
 
         self._name = user_info.get("name", "")
         self._email = user_info.get("email", "")
         self._credentials = user_info.get("credentials", [])
-        self._linkedin_extension = user_info.get("linkedin_extension", "")
         self._websites = user_info.get("websites", [])
         self._desired_job_titles = user_info.get("desired_job_titles", [])
         self._desired_job_locations = user_info.get("desired_job_locations", [])
@@ -70,7 +68,6 @@ class User:
             "name": self._name,
             "email": self._email,
             "credentials": self._credentials,
-            "linkedin_extension": self._linkedin_extension,
             "websites": self._websites,
             "source_document_paths": self._source_document_paths,
             "desired_job_titles": self._desired_job_titles,
@@ -122,19 +119,12 @@ class User:
         self._credentials = value
 
     @property
-    def linkedin_extension(self) -> str:
-        return self._linkedin_extension
-
-    @linkedin_extension.setter
-    def linkedin_extension(self, value: str):
-        self._linkedin_extension = value
-
-    @property
     def linkedin_url(self) -> str:
-        """Returns full LinkedIn profile URL."""
-        if not self._linkedin_extension:
-            return ""
-        return f"https://www.linkedin.com/in/{self._linkedin_extension}/"
+        """Returns LinkedIn profile URL if one exists in websites."""
+        for url in self._websites:
+            if "linkedin.com" in url.lower():
+                return url
+        return ""
 
     @property
     def websites(self) -> list[str]:
@@ -147,10 +137,6 @@ class User:
     def remove_website(self, url: str):
         if url in self._websites:
             self._websites.remove(url)
-            
-    @property
-    def all_websites(self):
-        return [url for url in (self.websites + [self.linkedin_url])]
 
     @property
     def source_document_paths(self) -> list[str]:

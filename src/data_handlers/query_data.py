@@ -1,108 +1,108 @@
-from pathlib import Path
-import csv
-from .utils import datetime_iso
+"""Database-backed search query storage."""
+
+from .database import Database
 
 
 class SearchQuery:
-    def __init__(self, _id: int, query: str, removed: bool, manager):
-        self.id = _id
-        self.query = query
-        self.removed = removed
-        self._manager = manager
+    """A single search query with database-backed persistence."""
+
+    def __init__(self, query_id: int, query: str, removed: bool, username: str, db: Database):
+        self._id = query_id
+        self._query = query
+        self._removed = removed
+        self._username = username
+        self._db = db
+
+    @property
+    def id(self) -> int:
+        return self._id
+
+    @property
+    def query(self) -> str:
+        return self._query
+
+    @property
+    def removed(self) -> bool:
+        return self._removed
+
+    @removed.setter
+    def removed(self, value: bool):
+        self._removed = value
+        self._db.update_query_removed(self._username, self._id, value)
 
     def __str__(self):
-        return self.query
+        return self._query
 
     def __repr__(self):
-        return self.query
+        return self._query
 
     def write_result(self, potential_leads: int):
-        self._manager.write_result(self.id, potential_leads)
+        """Log a search result for this query."""
+        self._db.insert_query_result(self._username, self._id, potential_leads)
 
 
 class SearchQueries:
-    def __init__(self, queries_path: Path, results_path: Path):
-        self._queries_path = queries_path
-        self._results_path = results_path
-        self._all_queries = []  # All queries including removed
-        self._load()
+    """Database-backed search query collection."""
 
-    def _load(self):
-        """Load queries from CSV file."""
-        self._all_queries = []
-        if self._queries_path.exists():
-            with open(self._queries_path, "r") as f:
-                reader = csv.reader(f)
-                for row in reader:
-                    if len(row) >= 2:
-                        _id = int(row[0])
-                        query = row[1]
-                        # Backwards compatibility: old format has no removed column
-                        removed = row[2].lower() == "true" if len(row) >= 3 else False
-                        self._all_queries.append(
-                            SearchQuery(_id=_id, query=query, removed=removed, manager=self)
-                        )
+    def __init__(self, db: Database, username: str):
+        self._db = db
+        self._username = username
+        self._queries_cache: dict[int, SearchQuery] = {}
+        self._load_all()
 
-    @property
-    def _queries(self):
-        """Active (non-removed) queries."""
-        return [q for q in self._all_queries if not q.removed]
+    def _load_all(self):
+        """Load all queries into cache."""
+        query_dicts = self._db.get_all_queries(self._username)
+        for data in query_dicts:
+            query = SearchQuery(
+                query_id=data["query_id"],
+                query=data["query"],
+                removed=data["removed"],
+                username=self._username,
+                db=self._db
+            )
+            self._queries_cache[query.id] = query
 
     def __iter__(self):
-        return self._queries.__iter__()
+        """Iterate over active (non-removed) queries."""
+        return iter(q for q in self._queries_cache.values() if not q.removed)
 
     def __len__(self):
-        return len(self._queries)
+        """Count of active (non-removed) queries."""
+        return sum(1 for q in self._queries_cache.values() if not q.removed)
 
-    def _rewrite_csv(self):
-        """Rewrite the CSV with all queries including removed flag."""
-        with open(self._queries_path, "w", newline="") as f:
-            writer = csv.writer(f)
-            for q in self._all_queries:
-                writer.writerow([q.id, q.query, q.removed])
+    @property
+    def all_queries(self) -> list[SearchQuery]:
+        """All queries including removed ones."""
+        return list(self._queries_cache.values())
 
     def save(self, queries: list[str]):
-        """Append new query strings to CSV and reload."""
-        # Use max ID from all queries (including removed) to avoid ID reuse
-        start_id = max((q.id for q in self._all_queries), default=0) + 1
-        with open(self._queries_path, "a", newline="") as f:
-            writer = csv.writer(f)
-            for i, query in enumerate(queries, start_id):
-                writer.writerow([i, query, False])
-        self._load()
+        """Add new query strings."""
+        for query_text in queries:
+            query_id = self._db.insert_query(self._username, query_text)
+            query = SearchQuery(
+                query_id=query_id,
+                query=query_text,
+                removed=False,
+                username=self._username,
+                db=self._db
+            )
+            self._queries_cache[query.id] = query
 
-    def write_result(self, _id: int, potential_leads: int):
-        with open(self._results_path, 'a') as f:
-            writer = csv.writer(f)
-            writer.writerow([_id, datetime_iso(), potential_leads])
-            
+    def write_result(self, query_id: int, potential_leads: int):
+        """Log a search result for a query."""
+        self._db.insert_query_result(self._username, query_id, potential_leads)
+
     def write_results(self, results: dict[int, int]):
-        rows = [
-            [_id, datetime_iso(), _leads]
-            for _id, _leads in results.items()
-        ]
-        with open(self._results_path, 'a') as f:
-            writer = csv.writer(f)
-            writer.writerows(rows)
+        """Log multiple search results at once."""
+        self._db.insert_query_results(self._username, results)
 
     def get_results_count(self, query_id: int) -> int:
-        """Get total potential leads found for a query from results CSV."""
-        if not self._results_path.exists():
-            return 0
-        total = 0
-        with open(self._results_path, "r") as f:
-            reader = csv.reader(f)
-            for row in reader:
-                if len(row) >= 3 and row[0] == str(query_id):
-                    try:
-                        total += int(row[2])
-                    except ValueError:
-                        continue
-        return total
+        """Get total potential leads found for a query."""
+        return self._db.get_query_results_total(self._username, query_id)
 
     def remove(self, query_ids: list[int]):
         """Soft-delete queries by marking them as removed."""
-        for q in self._all_queries:
-            if q.id in query_ids:
-                q.removed = True
-        self._rewrite_csv()
+        for query_id in query_ids:
+            if query_id in self._queries_cache:
+                self._queries_cache[query_id].removed = True

@@ -333,6 +333,11 @@ class JobsDB:
 
         self._load_all()
 
+    @property
+    def database(self) -> Database:
+        """Expose database for shared use by other handlers."""
+        return self._db
+
     def _load_all(self):
         """Load all jobs into cache."""
         job_dicts = self._db.get_all_jobs(self._username)
