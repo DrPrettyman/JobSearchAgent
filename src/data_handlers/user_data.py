@@ -1,24 +1,21 @@
 from pathlib import Path
 import json
-from .jobs_data import Jobs, JobStatus
+from .jobs_data import JobStatus
+from .jobs_db import JobsDB
 from .query_data import SearchQueries
 
 
 class User:
     def __init__(self, directory_path: Path):
-        
+
         self.directory_path = directory_path
-        
+
         if not directory_path.exists():
             directory_path.mkdir()
-        
-        self._file_path = directory_path / "user_info.json"
-        self.job_handler = Jobs(file_path=directory_path / "jobs.json")
-        self.query_handler = SearchQueries(
-            queries_path=directory_path / "search_queries.csv", 
-            results_path=directory_path / "search_query_results.csv"
-            )
 
+        self._file_path = directory_path / "user_info.json"
+
+        # Load or create user info
         if not self._file_path.exists():
             with open(self._file_path, "w") as f:
                 json.dump(
@@ -38,6 +35,19 @@ class User:
 
         with open(self._file_path, "r") as f:
             user_info = json.load(f)
+
+        # Get username for database (use name or "default")
+        username = user_info.get("name", "") or "default"
+
+        # Initialize job handler with database
+        self.job_handler = JobsDB(
+            db_path=directory_path / "jobsearch.db",
+            username=username
+        )
+        self.query_handler = SearchQueries(
+            queries_path=directory_path / "search_queries.csv",
+            results_path=directory_path / "search_query_results.csv"
+        )
 
         self._name = user_info.get("name", "")
         self._email = user_info.get("email", "")

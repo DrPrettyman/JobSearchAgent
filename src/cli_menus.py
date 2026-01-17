@@ -9,7 +9,7 @@ from datetime import datetime
 from InquirerPy import inquirer
 from InquirerPy.validator import PathValidator
 
-from data_handlers import User, Job, Jobs, JobStatus
+from data_handlers import User, Job, JobStatus
 from data_handlers.utils import datetime_iso
 from cli_utils import (
     Colors,
@@ -169,9 +169,7 @@ class JobOptions:
 
         # Add new questions (without answers)
         for q in new_questions:
-            self.job.questions.append({"question": q, "answer": ""})
-
-        self.user.job_handler.save()
+            self.job.add_question(q)
         print(f"\n{Colors.GREEN}✓ Added {len(new_questions)} questions{Colors.RESET}\n")
         input("Press Enter to continue...")
 
@@ -224,9 +222,8 @@ class JobOptions:
             results_map = {r["question"]: r["answer"] for r in results}
             for q in self.job.questions:
                 if q["question"] in results_map and results_map[q["question"]]:
-                    q["answer"] = results_map[q["question"]]
+                    self.job.update_question_answer(q["question"], results_map[q["question"]])
 
-            self.user.job_handler.save()
             print(f"{Colors.GREEN}✓ Generated {len(results)} answers!{Colors.RESET}\n")
         else:
             print(f"{Colors.RED}Failed to generate answers.{Colors.RESET}\n")
