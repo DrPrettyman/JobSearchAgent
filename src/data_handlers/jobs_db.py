@@ -374,10 +374,6 @@ class JobsDB:
     def number_pending(self) -> int:
         return self._db.count_jobs_by_status(self._username, "pending")
 
-    def save(self):
-        """No-op for compatibility. All changes auto-persist."""
-        pass
-
     def has_link(self, link: str) -> bool:
         """Check if a job with this link already exists."""
         return self._db.job_has_link(self._username, link)

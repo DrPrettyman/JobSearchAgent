@@ -289,8 +289,6 @@ class User:
                 {qid: -1 for qid in job.query_ids}
             )
 
-        self.job_handler.save()
-
     def restore_job(self, job_id):
         job = self.job_handler.get(job_id)
         if job is None:
@@ -302,6 +300,4 @@ class User:
             self.query_handler.write_results(
                 {qid: 1 for qid in job.query_ids}
             )
-
-        self.job_handler.save()
         

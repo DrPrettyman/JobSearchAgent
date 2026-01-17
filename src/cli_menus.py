@@ -77,7 +77,6 @@ class JobOptions:
             return
 
         self.job.set_cover_letter_pdf_path(pdf_path.resolve())
-        self.user.job_handler.save()
         
     def generate_cover_letter_for_job(self):
         """Generate cover letter content for a job."""
@@ -110,7 +109,6 @@ class JobOptions:
                 print(f"{Colors.RED}Failed to analyze job description.{Colors.RESET}\n")
                 return
             self.job.cover_letter_topics = topics
-            self.user.job_handler.save()
             print(f"{Colors.GREEN}✓ Identified {len(topics)} key topics{Colors.RESET}")
 
         # Step 2: Generate cover letter body from topics
@@ -126,7 +124,6 @@ class JobOptions:
 
         if body:
             self.job.cover_letter_body = body
-            self.user.job_handler.save()
             print(f"{Colors.GREEN}✓ Cover letter generated!{Colors.RESET}\n")
             self.export_pdf_cover_letter()
         else:
@@ -275,7 +272,6 @@ class JobOptions:
 
         if confirm:
             self.job.questions = []
-            self.user.job_handler.save()
             print(f"\n{Colors.GREEN}✓ Questions cleared.{Colors.RESET}\n")
 
     def edit_job_details(self):
@@ -339,8 +335,7 @@ class JobOptions:
                 ).execute()
                 self.job.addressee = new_value if new_value else None
 
-            self.user.job_handler.save()
-
+    
     def edit_job_description(self):
         """Allow user to paste/edit the job description."""
         clear_screen()
@@ -378,7 +373,6 @@ class JobOptions:
         # Clear cover letter topics so they'll be regenerated with new description
         if self.job.cover_letter_topics:
             self.job.cover_letter_topics = []
-        self.user.job_handler.save()
         print(f"\n{Colors.GREEN}✓ Job description updated ({len(new_description)} characters){Colors.RESET}\n")
         input("Press Enter to continue...")
 
@@ -458,25 +452,21 @@ class JobOptions:
                 break
             elif action == "apply":
                 self.job.status = JobStatus.APPLIED
-                self.user.job_handler.save()
                 print(f"\n{Colors.GREEN}✓ Marked as applied!{Colors.RESET}\n")
                 time.sleep(1)
                 return
             elif action == "unapply":
                 self.job.status = JobStatus.IN_PROGRESS
-                self.user.job_handler.save()
                 print(f"\n{Colors.YELLOW}○ Marked as not applied.{Colors.RESET}\n")
                 time.sleep(1)
                 return
             elif action == "in_progress":
                 self.job.status = JobStatus.IN_PROGRESS
-                self.user.job_handler.save()
                 print(f"\n{Colors.CYAN}▶ Marked as in progress.{Colors.RESET}\n")
                 time.sleep(1)
                 return
             elif action == "pending":
                 self.job.status = JobStatus.PENDING
-                self.user.job_handler.save()
                 print(f"\n{Colors.YELLOW}○ Marked as pending.{Colors.RESET}\n")
                 time.sleep(1)
                 return
@@ -1083,8 +1073,7 @@ class UserOptions:
                     print(f"{Colors.RED}Failed to move {pdf_path.name}: {e}{Colors.RESET}")
 
         if moved_count > 0:
-            self.user.job_handler.save()
-            print(f"{Colors.GREEN}✓ Moved {moved_count} cover letter PDF(s) to new directory{Colors.RESET}")
+                print(f"{Colors.GREEN}✓ Moved {moved_count} cover letter PDF(s) to new directory{Colors.RESET}")
 
     def configure_ai_credentials(self):
         """Configure AI backend credentials."""
@@ -1690,7 +1679,6 @@ Return ONLY a JSON array of 30 query strings, no other text:
                 location=location or "",
                 full_description=full_description or "",
             )
-            self.user.job_handler.save()
             print(f"\n{Colors.GREEN}✓ Added: {job.title} at {job.company}{Colors.RESET}\n")
 
             # Open the job details menu
@@ -1737,7 +1725,6 @@ Return ONLY a JSON array of 30 query strings, no other text:
                 link=link or "",
                 location=location or "",
             )
-            self.user.job_handler.save()
             print(f"\n{Colors.GREEN}✓ Added: {job.title} at {job.company}{Colors.RESET}\n")
 
             # Open the job details menu to add more info

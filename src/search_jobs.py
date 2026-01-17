@@ -309,7 +309,6 @@ class JobSearcher:
             )
             print(f"  Added: {job.title} at {job.company} ({job.id})")
 
-        self.user.job_handler.save()
         print(f"\nDone! Added {len(jobs)} new jobs. Total jobs: {len(self.user.job_handler)}")
 
         # Clear temp file after successful processing
