@@ -59,6 +59,60 @@ class Job:
                 cover_letter_pdf_path = None
         self._cover_letter_pdf_path = cover_letter_pdf_path
 
+    @classmethod
+    def create(
+        cls,
+        db: Database,
+        username: str,
+        company: str,
+        title: str,
+        link: str,
+        location: str = "",
+        description: str = "",
+        full_description: str = "",
+        addressee: str | None = None,
+        query_ids: list[int] | None = None
+    ) -> "Job":
+        """Create a new job and insert it into the database."""
+        job = cls(
+            job_id=str(uuid4()),
+            username=username,
+            company=company,
+            title=title,
+            date_found=datetime_iso(),
+            status=JobStatus.PENDING,
+            link=link,
+            location=location,
+            description=description,
+            fit_notes=[],
+            cover_letter_topics=[],
+            full_description=full_description,
+            cover_letter_body="",
+            addressee=addressee,
+            cover_letter_pdf_path=None,
+            questions=[],
+            query_ids=query_ids or [],
+            db=db
+        )
+
+        db.insert_job(
+            username=job._username,
+            job_id=job._id,
+            company=job._company,
+            title=job._title,
+            date_found=job._date_found,
+            link=job._link,
+            location=job._location,
+            description=job._description,
+            full_description=job._full_description,
+            addressee=job._addressee,
+            fit_notes=job._fit_notes,
+            status=job._status.value,
+            query_ids=job._query_ids
+        )
+
+        return job
+
     # --- Read-only properties ---
 
     @property
@@ -344,46 +398,19 @@ class JobsDB:
             description: str = "", full_description: str = "",
             addressee: str | None = None, query_ids: list[int] = None) -> Job:
         """Add a new job and return it."""
-        job_id = str(uuid4())
-        date_found = datetime_iso()
-        query_ids = query_ids or []
-
-        self._db.insert_job(
+        job = Job.create(
+            db=self._db,
             username=self._username,
-            job_id=job_id,
             company=company,
             title=title,
-            date_found=date_found,
             link=link,
             location=location,
             description=description,
             full_description=full_description,
             addressee=addressee,
-            status="pending",
             query_ids=query_ids
         )
-
-        job = Job(
-            job_id=job_id,
-            username=self._username,
-            company=company,
-            title=title,
-            date_found=date_found,
-            status=JobStatus.PENDING,
-            link=link,
-            location=location,
-            description=description,
-            fit_notes=[],
-            cover_letter_topics=[],
-            full_description=full_description,
-            cover_letter_body="",
-            addressee=addressee,
-            cover_letter_pdf_path=None,
-            questions=[],
-            query_ids=query_ids,
-            db=self._db
-        )
-        self._jobs_cache[job_id] = job
+        self._jobs_cache[job.id] = job
         return job
 
     def get(self, job_id: str) -> Job | None:
