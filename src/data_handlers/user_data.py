@@ -1,7 +1,6 @@
 from pathlib import Path
 import json
-from .jobs_data import JobStatus
-from .jobs_db import JobsDB
+from .jobs_db import JobsDB, JobStatus
 from .query_data import SearchQueries
 
 

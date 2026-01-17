@@ -1,12 +1,19 @@
 """Database-backed job storage."""
 
 import json
+from enum import Enum
 from pathlib import Path
 from uuid import uuid4
 
 from .database import Database
-from .jobs_data import JobStatus
 from .utils import datetime_iso
+
+
+class JobStatus(str, Enum):
+    PENDING = "pending"
+    IN_PROGRESS = "in_progress"
+    APPLIED = "applied"
+    DISCARDED = "discarded"
 
 
 class Job:
@@ -207,7 +214,7 @@ class Job:
     @status.setter
     def status(self, value: JobStatus):
         self._status = value
-        self._db.update_status(self._username, self._id, value.value)
+        self._db.update_job_status(self._username, self._id, value.value)
 
     # --- Cover letter properties ---
 
@@ -218,7 +225,7 @@ class Job:
     @cover_letter_topics.setter
     def cover_letter_topics(self, value: list[dict]):
         self._cover_letter_topics = value
-        self._db.update_cover_letter(self._username, self._id, topics=value)
+        self._db.update_job_cover_letter(self._username, self._id, topics=value)
 
     @property
     def cover_letter_body(self) -> str:
@@ -227,7 +234,7 @@ class Job:
     @cover_letter_body.setter
     def cover_letter_body(self, value: str):
         self._cover_letter_body = value
-        self._db.update_cover_letter(self._username, self._id, body=value)
+        self._db.update_job_cover_letter(self._username, self._id, body=value)
 
     @property
     def cover_letter_pdf_path(self) -> Path | None:
@@ -247,7 +254,7 @@ class Job:
 
         self._cover_letter_pdf_path = new_path
         path_str = str(new_path) if new_path else None
-        self._db.update_cover_letter(self._username, self._id, pdf_path=path_str)
+        self._db.update_job_cover_letter(self._username, self._id, pdf_path=path_str)
 
     # --- Questions property ---
 
@@ -260,13 +267,13 @@ class Job:
         """Replace all questions (used for clearing)."""
         self._questions = value
         if not value:
-            self._db.clear_questions(self._username, self._id)
+            self._db.clear_job_questions(self._username, self._id)
         # Note: For adding questions, use the append pattern which is handled
         # by the JobsDB wrapper or direct database calls
 
     def add_question(self, question: str):
         """Add a new question."""
-        q_id = self._db.add_question(self._username, self._id, question)
+        q_id = self._db.add_job_question(self._username, self._id, question)
         self._questions.append({"id": q_id, "question": question, "answer": ""})
 
     def update_question_answer(self, question_text: str, answer: str):
@@ -275,7 +282,7 @@ class Job:
             if q["question"] == question_text:
                 q["answer"] = answer
                 if "id" in q:
-                    self._db.update_question_answer(self._username, self._id, q["id"], answer)
+                    self._db.update_job_question_answer(self._username, self._id, q["id"], answer)
                 break
 
     # --- Other methods ---
@@ -318,7 +325,7 @@ class JobsDB:
         # Check for migration from JSON
         json_path = db_path.parent / "jobs.json"
         if json_path.exists() and self._db.count_jobs(username) == 0:
-            migrated = self._db.migrate_from_json(json_path, username)
+            migrated = self._db.migrate_jobs_from_json(json_path, username)
             if migrated > 0:
                 # Rename old JSON file as backup
                 backup_path = db_path.parent / "jobs.json.bak"
@@ -372,19 +379,19 @@ class JobsDB:
 
     @property
     def number_applied(self) -> int:
-        return self._db.count_by_status(self._username, "applied")
+        return self._db.count_jobs_by_status(self._username, "applied")
 
     @property
     def number_in_progress(self) -> int:
-        return self._db.count_by_status(self._username, "in_progress")
+        return self._db.count_jobs_by_status(self._username, "in_progress")
 
     @property
     def number_discarded(self) -> int:
-        return self._db.count_by_status(self._username, "discarded")
+        return self._db.count_jobs_by_status(self._username, "discarded")
 
     @property
     def number_pending(self) -> int:
-        return self._db.count_by_status(self._username, "pending")
+        return self._db.count_jobs_by_status(self._username, "pending")
 
     def save(self):
         """No-op for compatibility. All changes auto-persist."""
@@ -392,7 +399,7 @@ class JobsDB:
 
     def has_link(self, link: str) -> bool:
         """Check if a job with this link already exists."""
-        return self._db.has_link(self._username, link)
+        return self._db.job_has_link(self._username, link)
 
     def add(self, company: str, title: str, link: str, location: str = "",
             description: str = "", full_description: str = "",
