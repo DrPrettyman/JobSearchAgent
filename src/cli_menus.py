@@ -1,10 +1,105 @@
 """CLI menu functions for JobSearch application."""
 
 import json
+import os
+import platform
+import shutil
+import subprocess
 import time
 import re
+import urllib.parse
+import webbrowser
 from pathlib import Path
 from datetime import datetime
+
+
+def get_platform() -> str:
+    """Return normalized platform name: 'macos', 'windows', or 'linux'."""
+    system = platform.system().lower()
+    if system == "darwin":
+        return "macos"
+    elif system == "windows":
+        return "windows"
+    return "linux"
+
+
+def open_file(path: str) -> bool:
+    """Open a file with the system's default application. Returns True on success."""
+    try:
+        plat = get_platform()
+        if plat == "macos":
+            subprocess.run(["open", path], check=True)
+        elif plat == "windows":
+            os.startfile(path)
+        else:  # Linux
+            subprocess.run(["xdg-open", path], check=True)
+        return True
+    except Exception:
+        return False
+
+
+def copy_text_to_clipboard(text: str) -> bool:
+    """Copy text to system clipboard. Returns True on success."""
+    try:
+        plat = get_platform()
+        if plat == "macos":
+            subprocess.run(["pbcopy"], input=text.encode(), check=True)
+        elif plat == "windows":
+            subprocess.run(["clip"], input=text.encode(), check=True, shell=True)
+        else:  # Linux - try xclip, fall back to xsel
+            try:
+                subprocess.run(
+                    ["xclip", "-selection", "clipboard"],
+                    input=text.encode(),
+                    check=True
+                )
+            except FileNotFoundError:
+                subprocess.run(
+                    ["xsel", "--clipboard", "--input"],
+                    input=text.encode(),
+                    check=True
+                )
+        return True
+    except Exception:
+        return False
+
+
+def copy_pdf_to_clipboard(path: str) -> tuple[bool, str]:
+    """Copy PDF file to clipboard. Returns (success, message)."""
+    plat = get_platform()
+    if plat == "macos":
+        try:
+            script = f'set the clipboard to (read (POSIX file "{path}") as «class PDF »)'
+            subprocess.run(["osascript", "-e", script], check=True)
+            return True, "PDF copied to clipboard"
+        except Exception:
+            return False, "Failed to copy PDF to clipboard"
+    elif plat == "windows":
+        # Windows doesn't have a simple way to copy PDF as file to clipboard from CLI
+        # Copy the file path instead
+        try:
+            subprocess.run(["clip"], input=path.encode(), check=True, shell=True)
+            return True, "PDF file path copied to clipboard (use Ctrl+V to paste path)"
+        except Exception:
+            return False, "Failed to copy to clipboard"
+    else:  # Linux
+        # Linux also lacks simple PDF-to-clipboard; copy path instead
+        try:
+            try:
+                subprocess.run(
+                    ["xclip", "-selection", "clipboard"],
+                    input=path.encode(),
+                    check=True
+                )
+            except FileNotFoundError:
+                subprocess.run(
+                    ["xsel", "--clipboard", "--input"],
+                    input=path.encode(),
+                    check=True
+                )
+            return True, "PDF file path copied to clipboard"
+        except Exception:
+            return False, "Failed to copy to clipboard (install xclip or xsel)"
 
 from InquirerPy import inquirer
 from InquirerPy.validator import PathValidator
@@ -481,12 +576,9 @@ class JobOptions:
                 time.sleep(1)
                 return
             elif action == "open_link":
-                import webbrowser
                 webbrowser.open(self.job.link)
                 print(f"\n{Colors.DIM}Opening in browser...{Colors.RESET}\n")
             elif action == "google_job":
-                import webbrowser
-                import urllib.parse
                 query = urllib.parse.quote(f"careers {self.job.company} {self.job.title}")
                 webbrowser.open(f"https://www.google.com/search?q={query}")
                 print(f"\n{Colors.DIM}Opening Google search...{Colors.RESET}\n")
@@ -499,27 +591,28 @@ class JobOptions:
                 print(self.job.full_description)
                 print()
                 print_thick_line()
-                user_input = input()
+                input("Press Enter to continue...")
             elif action == "edit_description":
                 self.edit_job_description()
             elif action == "cover_letter_generate":
                 self.generate_cover_letter_for_job()
             elif action == "cover_letter_open":
-                import subprocess
-                subprocess.run(['open', str(self.job.cover_letter_pdf_path)])
-                print(f"\n{Colors.DIM}Opening PDF...{Colors.RESET}\n")
+                if open_file(str(self.job.cover_letter_pdf_path)):
+                    print(f"\n{Colors.DIM}Opening PDF...{Colors.RESET}\n")
+                else:
+                    print(f"\n{Colors.RED}Could not open PDF. File: {self.job.cover_letter_pdf_path}{Colors.RESET}\n")
             elif action == "cover_letter_text_clipboard":
-                import subprocess
                 letter_text = self.job.cover_letter_full_text(name_for_letter=self.user.name_with_credentials)
-                subprocess.run(['pbcopy'], input=letter_text.encode(), check=True)
-                print(f"\n{Colors.GREEN}✓ Cover letter copied to clipboard{Colors.RESET}\n")
+                if copy_text_to_clipboard(letter_text):
+                    print(f"\n{Colors.GREEN}✓ Cover letter copied to clipboard{Colors.RESET}\n")
+                else:
+                    print(f"\n{Colors.RED}Could not copy to clipboard{Colors.RESET}\n")
             elif action == "cover_letter_pdf_clipboard":
-                import subprocess
-                # Use osascript to copy file to clipboard on macOS
-                path = str(self.job.cover_letter_pdf_path)
-                script = f'set the clipboard to (read (POSIX file "{path}") as «class PDF »)'
-                subprocess.run(['osascript', '-e', script], check=True)
-                print(f"\n{Colors.GREEN}✓ PDF copied to clipboard{Colors.RESET}\n")
+                success, message = copy_pdf_to_clipboard(str(self.job.cover_letter_pdf_path))
+                if success:
+                    print(f"\n{Colors.GREEN}✓ {message}{Colors.RESET}\n")
+                else:
+                    print(f"\n{Colors.RED}{message}{Colors.RESET}\n")
             elif action == "cover_letter_pdf_export":
                 self.export_pdf_cover_letter()
             elif action == "add_questions":
@@ -552,7 +645,6 @@ class UserOptions:
         """Guided setup flow for first-time users."""
         clear_screen()
         print(f"{Colors.CYAN}{ASCII_ART_JOBSEARCH}{Colors.RESET}")
-        print(ASCII_ART_JOBSEARCH)
         print(f"  {Colors.DIM}Let's set up your profile to find the perfect job.{Colors.RESET}\n")
 
         # Step 1: Basic info
@@ -590,7 +682,7 @@ class UserOptions:
                 default=True
             ).execute()
             if use_ai:
-                self.suggest_from_documents()
+                self.create_new_job_title_and_location_suggestions()
 
         self.configure_job_titles()
         self.configure_job_locations()
@@ -775,7 +867,7 @@ class UserOptions:
         websites_after = set(self.user.websites)
 
         if websites_before != websites_after:
-            self.refresh_online_presence
+            self.refresh_online_presence()
 
     def configure_job_titles(self):
         """Configure desired job titles."""
@@ -1036,8 +1128,6 @@ class UserOptions:
 
     def _move_cover_letter_pdfs(self, old_dir: Path, new_dir: Path):
         """Move cover letter PDFs from old directory to new directory."""
-        import shutil
-
         old_dir = Path(old_dir)
         new_dir = Path(new_dir)
 
@@ -1160,7 +1250,7 @@ class UserOptions:
         user_background = self.user.comprehensive_summary or combined_documents_as_string(self.user.combined_source_documents)
         if not user_background:
             print("No source documents or comprehensive summary available.")
-            return
+            return {"titles": [], "locations": []}
         
         existing_titles_list = sorted(set(self.user.desired_job_titles) | set(self._job_title_suggestions))
         if existing_titles_list:
@@ -1193,7 +1283,7 @@ Background:
 
         if not success:
             print(f"Claude analysis failed: {response}")
-            return
+            return {"titles": [], "locations": []}
 
         try:
             json_str = extract_json_from_response(response)
