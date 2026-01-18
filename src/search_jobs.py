@@ -1,6 +1,7 @@
 """Runs a search for jobs on the web."""
 
 import json
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from utils import (
     counter,
     run_claude,
@@ -224,31 +225,41 @@ class JobSearcher:
             else:
                 new_list.append(j)
         
-    def _post_process_temp_jobs(self, fetch_descriptions: bool = True) -> list[str]:
+    def _post_process_temp_jobs(self, fetch_descriptions: bool = True, max_workers: int = 5) -> list[str]:
         """Process TEMP jobs: fetch descriptions, filter unsuitable. Returns IDs of good jobs."""
         self._merge_temp_jobs()
-        
+
         temp_jobs = self.user.job_handler.get_temp_jobs()
         if not temp_jobs:
             print("\nNo temp jobs to process.")
             return []
-        
+
         print(f"\nProcessing {len(temp_jobs)} temp jobs...")
 
-        # Fetch full descriptions
+        # Fetch full descriptions concurrently
         if fetch_descriptions:
-            print(f"\nFetching full descriptions...")
-            for i, job in enumerate(temp_jobs, 1):
-                print(f"  [{i}/{len(temp_jobs)}] {job.title} at {job.company}...")
-                if not job.full_description:
-                    full_desc = fetch_full_description(job.link)
-                    if full_desc:
+            print(f"\nFetching full descriptions ({max_workers} concurrent)...")
+
+            def fetch_for_job(job):
+                """Fetch description for a single job, return (job, description)."""
+                if job.full_description:
+                    return job, None  # Already has description
+                return job, fetch_full_description(job.link)
+
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = {executor.submit(fetch_for_job, job): job for job in temp_jobs}
+
+                for i, future in enumerate(as_completed(futures), 1):
+                    job, full_desc = future.result()
+                    print(f"  [{i}/{len(temp_jobs)}] {job.title} at {job.company}...", end=" ")
+
+                    if full_desc is None:
+                        print("Already has description")
+                    elif full_desc:
                         job.full_description = full_desc
-                        print(f"    Got {len(full_desc)} chars")
+                        print(f"Got {len(full_desc)} chars")
                     else:
-                        print("    No description extracted")
-                else:
-                    print("    Already has description")
+                        print("No description extracted")
 
         # Filter unsuitable jobs
         print("\nFiltering unsuitable jobs...")
