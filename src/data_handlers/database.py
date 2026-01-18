@@ -311,12 +311,23 @@ class Database:
 
         return [self.get_job(username, row["job_id"]) for row in rows]
 
-    def job_has_link(self, username: str, link: str) -> bool:
-        """Check if a job with this link exists."""
+    def job_has_link(self, username: str, link: str, exclude_temp: bool = False) -> bool:
+        """Check if a job with this link exists.
+
+        Args:
+            exclude_temp: If True, excludes jobs with TEMP status.
+        """
         with self.connection() as conn:
-            row = conn.execute("""
-                SELECT 1 FROM jobs WHERE username = ? AND link = ?
-            """, (username, link)).fetchone()
+            if exclude_temp:
+                row = conn.execute("""
+                    SELECT 1 FROM jobs j
+                    JOIN job_status s ON j.username = s.username AND j.job_id = s.job_id
+                    WHERE j.username = ? AND j.link = ? AND s.status != 'temp'
+                """, (username, link)).fetchone()
+            else:
+                row = conn.execute("""
+                    SELECT 1 FROM jobs WHERE username = ? AND link = ?
+                """, (username, link)).fetchone()
             return row is not None
 
     def count_jobs(self, username: str) -> int:
@@ -335,6 +346,13 @@ class Database:
                 WHERE username = ? AND status = ?
             """, (username, status)).fetchone()
             return row["count"]
+
+    def delete_job(self, username: str, job_id: str):
+        """Delete a job and all related records (cascades via foreign keys)."""
+        with self.connection() as conn:
+            conn.execute("""
+                DELETE FROM jobs WHERE username = ? AND job_id = ?
+            """, (username, job_id))
 
     # --- Update operations ---
 

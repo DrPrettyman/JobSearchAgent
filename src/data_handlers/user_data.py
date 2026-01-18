@@ -1,7 +1,7 @@
 from pathlib import Path
 from .globals import DATABASE
-from .jobs_db import JobsDB, JobStatus
-from .query_data import SearchQueries
+from .jobs import JobHandler, JobStatus
+from .queries import QueryHandler
 
 
 class User:
@@ -12,8 +12,8 @@ class User:
         user_info, self._is_new_user = DATABASE.get_or_create_user(self._username)
 
         # Initialize job and query handlers
-        self.job_handler = JobsDB(username=self._username, temp_dir=Path.home())
-        self.query_handler = SearchQueries(username=self._username)
+        self.job_handler = JobHandler(username=self._username)
+        self.query_handler = QueryHandler(username=self._username)
 
         # Load data from database
         self._name = user_info.get("name", "")

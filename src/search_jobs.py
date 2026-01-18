@@ -1,17 +1,14 @@
 """Runs a search for jobs on the web."""
 
 import json
-from collections import defaultdict
 from utils import (
-    counter, 
-    merge_records,
-    run_claude, 
-    scrape, 
-    combined_documents_as_string, 
+    counter,
+    run_claude,
+    scrape,
+    combined_documents_as_string,
     extract_json_from_response,
-    )
-from data_handlers import User, SearchQuery
-from data_handlers.utils import timestamp_is_recent
+)
+from data_handlers import User, Query
 
 
 REQUIRED_JOB_FIELDS = ("company", "title", "link")
@@ -136,14 +133,6 @@ class JobSearcher:
     def __init__(self, user: User):
         self.user = user
 
-    def _filter_duplicates(self, jobs: list[dict]) -> list[int]:
-        """Return indices of jobs that already exist in user's job handler."""
-        bad_indices = []
-        for job in jobs:
-            if self.user.job_handler.has_link(job["link"]):
-                bad_indices.append(job["index"])
-        return bad_indices
-
     def _filter_unsuitable(self, jobs: list[dict], chunk_size: int = 20) -> list[int]:
         """Use Claude to filter out jobs that don't match user's background.
 
@@ -190,58 +179,101 @@ class JobSearcher:
         bad_indices = sorted(set(all_indices) - set(all_good_indices))
         return bad_indices
 
-    def _search_for_jobs(self, queries: list[SearchQuery]) -> list[dict]:
-        """Search for jobs using all queries."""
+    def _search_for_jobs(self, queries: list[Query]):
+        """Search for jobs using all queries, creating TEMP jobs for crash recovery."""
         print(f"Searching with {len(queries)} queries...")
-        all_jobs = []
+        jobs_created = 0
 
         for i, query in enumerate(queries, 1):
             print(f"\n[{i}/{len(queries)}] {query.query[:60]}...")
             jobs_found = search_query(query.query)
-            for job in jobs_found:
-                job["query_ids"] = [query.id]
-                print(f"  Found: {job.get('title', 'Unknown')} at {job.get('company', 'Unknown')}")
-            # Save to temp file for crash recovery
-            self.user.job_handler.append_to_temp(query.query, jobs_found)
-            all_jobs.extend(jobs_found)
 
-        print(f"\nFound {len(all_jobs)} total jobs")
-        return all_jobs
+            for job_dict in jobs_found:
+                # Skip if missing required fields
+                if not all(key in job_dict for key in REQUIRED_JOB_FIELDS):
+                    continue
 
-    def _post_process_jobs(self, jobs: list[dict], fetch_descriptions: bool = True) -> list[dict]:
-        """Process jobs: merge, de-dupe, fetch descriptions, filter unsuitable."""
-        # Merge matching jobs (same link)
-        jobs = merge_records(records=jobs, merge_on="link", merge="query_ids")
+                # Create TEMP job for crash recovery
+                job = self.user.job_handler.add_temp(
+                    company=job_dict["company"],
+                    title=job_dict["title"],
+                    link=job_dict["link"],
+                    location=job_dict.get("location", ""),
+                    description=job_dict.get("description", ""),
+                    addressee=job_dict.get("addressee"),
+                    query_ids=[query.id]
+                )
+                jobs_created += 1
+                print(f"  Found: {job.title} at {job.company}")
+
+        print(f"\nCreated {jobs_created} temp jobs")
         
-        for i, j in enumerate(jobs):
-            j["index"] = i
-
-        # Filter duplicates
-        print("\nFiltering duplicates...")
-        bad_indices = self._filter_duplicates(jobs)
-        jobs = [j for j in jobs if j["index"] not in bad_indices]
-
-        if not jobs:
-            print("\nNo new jobs to process.")
+    def _merge_temp_jobs(self):
+        temp_jobs = self.user.job_handler.get_temp_jobs()
+        if not temp_jobs:
+            return
+        
+        new_list = []
+        while temp_jobs:
+            j = temp_jobs.pop()
+            for k in new_list:
+                if j.company == k.company and j.title == k.title:
+                    k.add_query_ids(j.query_ids)
+                    self.user.job_handler.delete_job(job_id=j._id)
+                    break
+            else:
+                new_list.append(j)
+        
+    def _post_process_temp_jobs(self, fetch_descriptions: bool = True) -> list[str]:
+        """Process TEMP jobs: fetch descriptions, filter unsuitable. Returns IDs of good jobs."""
+        self._merge_temp_jobs()
+        
+        temp_jobs = self.user.job_handler.get_temp_jobs()
+        if not temp_jobs:
+            print("\nNo temp jobs to process.")
             return []
+        
+        print(f"\nProcessing {len(temp_jobs)} temp jobs...")
 
-        # Phase 2: Fetch full descriptions
+        # Fetch full descriptions
         if fetch_descriptions:
-            print(f"\nFetching full descriptions for {len(jobs)} jobs...")
-            for i, job_data in enumerate(jobs, 1):
-                print(f"  [{i}/{len(jobs)}] {job_data['title']} at {job_data['company']}...")
-                full_desc = fetch_full_description(job_data.get("link", ""))
-                if full_desc:
-                    job_data["full_description"] = full_desc
-                    print(f"    Got {len(full_desc)} chars")
+            print(f"\nFetching full descriptions...")
+            for i, job in enumerate(temp_jobs, 1):
+                print(f"  [{i}/{len(temp_jobs)}] {job.title} at {job.company}...")
+                if not job.full_description:
+                    full_desc = fetch_full_description(job.link)
+                    if full_desc:
+                        job.full_description = full_desc
+                        print(f"    Got {len(full_desc)} chars")
+                    else:
+                        print("    No description extracted")
                 else:
-                    print("    No description extracted")
+                    print("    Already has description")
 
-        # Phase 3: Filter unsuitable jobs
+        # Filter unsuitable jobs
         print("\nFiltering unsuitable jobs...")
-        bad_indices = self._filter_unsuitable(jobs, chunk_size=20)
+        # Convert to dict format for filter function
+        jobs_as_dicts = []
+        for i, job in enumerate(temp_jobs):
+            jobs_as_dicts.append({
+                "index": i,
+                "company": job.company,
+                "title": job.title,
+                "location": job.location,
+                "description": job.description,
+                "job_id": job.id
+            })
 
-        return [j for j in jobs if j["index"] not in bad_indices]
+        bad_indices = self._filter_unsuitable(jobs_as_dicts, chunk_size=20)
+
+        good_job_ids = [j["job_id"] for j in jobs_as_dicts if j["index"] not in bad_indices]
+        bad_job_ids = [j["job_id"] for j in jobs_as_dicts if j["index"] in bad_indices]
+
+        # Delete unsuitable jobs
+        for job_id in bad_job_ids:
+            self.user.job_handler.delete_job(job_id)
+
+        return good_job_ids
 
     def search(self, query_ids: list[int] = None, fetch_descriptions: bool = True):
         """Run the full job search pipeline.
@@ -256,60 +288,30 @@ class JobSearcher:
         else:
             queries = all_queries
 
-        jobs = []
-
-        # Look for any abandoned searches from the temp file
-        abandoned_searches = self.user.job_handler.read_temp()
-        if abandoned_searches:
-            print(f"Found {len(abandoned_searches)} abandoned search results from previous session")
-
-        recent_queries_used = set()
-        for record in abandoned_searches:
-            jobs.extend(record.get("jobs", []))
-            if timestamp_is_recent(record.get("timestamp", ""), recent_threshold_hours=12):
-                recent_queries_used.add(record.get("query_id"))
-
-        # Filter out queries already completed recently
-        queries = [q for q in queries if q.id not in recent_queries_used]
-
-        if not queries and not jobs:
+        # Check for existing TEMP jobs (crash recovery)
+        if not queries and not self.user.job_handler.number_temp:
             print("No search queries configured. Generate queries first.")
             return
 
+        # Run new searches (creates TEMP jobs)
         if queries:
-            jobs_found = self._search_for_jobs(queries)
-            jobs.extend(jobs_found)
-        else:
-            print("All queries already completed recently. Processing recovered jobs...")
+            self._search_for_jobs(queries)
 
-        jobs = self._post_process_jobs(jobs, fetch_descriptions=fetch_descriptions)
-        print(f"  {len(jobs)} suitable jobs remaining")
+        # Process all TEMP jobs (fetch descriptions, filter unsuitable)
+        good_job_ids = self._post_process_temp_jobs(fetch_descriptions=fetch_descriptions)
+        print(f"  {len(good_job_ids)} suitable jobs remaining")
 
-        if not jobs:
+        if not good_job_ids:
             print("\nNo suitable jobs found.")
             return
-        
-        # Write query results
+
+        # Promote good TEMP jobs to PENDING
+        self.user.job_handler.promote_temp_jobs(good_job_ids)
+
+        # Write query results for the promoted jobs
+        promoted_jobs = [self.user.job_handler.get(job_id) for job_id in good_job_ids]
         self.user.query_handler.write_results(
-            counter([j['query_ids'] for j in jobs])
+            counter([j.query_ids for j in promoted_jobs if j])
         )
 
-        # Add to job handler
-        print(f"\nAdding {len(jobs)} jobs to database...")
-        for job_data in jobs:
-            job = self.user.job_handler.add(
-                company=job_data.get("company", "Unknown"),
-                title=job_data.get("title", "Unknown"),
-                link=job_data.get("link", ""),
-                location=job_data.get("location", ""),
-                description=job_data.get("description", ""),
-                full_description=job_data.get("full_description", ""),
-                addressee=job_data.get("addressee"),
-                query_ids=job_data.get("query_ids", [])
-            )
-            print(f"  Added: {job.title} at {job.company} ({job.id})")
-
-        print(f"\nDone! Added {len(jobs)} new jobs. Total jobs: {len(self.user.job_handler)}")
-
-        # Clear temp file after successful processing
-        self.user.job_handler.clear_temp()
+        print(f"\nDone! Promoted {len(good_job_ids)} jobs to pending. Total jobs: {len(self.user.job_handler)}")
