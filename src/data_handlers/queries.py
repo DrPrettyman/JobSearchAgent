@@ -3,7 +3,7 @@
 from .globals import DATABASE
 
 
-class SearchQuery:
+class Query:
     """A single search query with database-backed persistence."""
 
     def __init__(self, query_id: int, query: str, removed: bool, username: str):
@@ -40,19 +40,19 @@ class SearchQuery:
         DATABASE.insert_query_result(self._username, self._id, potential_leads)
 
 
-class SearchQueries:
+class QueryHandler:
     """Database-backed search query collection."""
 
     def __init__(self, username: str):
         self._username = username
-        self._queries_cache: dict[int, SearchQuery] = {}
+        self._queries_cache: dict[int, Query] = {}
         self._load_all()
 
     def _load_all(self):
         """Load all queries into cache."""
         query_dicts = DATABASE.get_all_queries(self._username)
         for data in query_dicts:
-            query = SearchQuery(
+            query = Query(
                 query_id=data["query_id"],
                 query=data["query"],
                 removed=data["removed"],
@@ -69,7 +69,7 @@ class SearchQueries:
         return sum(1 for q in self._queries_cache.values() if not q.removed)
 
     @property
-    def all_queries(self) -> list[SearchQuery]:
+    def all_queries(self) -> list[Query]:
         """All queries including removed ones."""
         return list(self._queries_cache.values())
 
@@ -77,7 +77,7 @@ class SearchQueries:
         """Add new query strings."""
         for query_text in queries:
             query_id = DATABASE.insert_query(self._username, query_text)
-            query = SearchQuery(
+            query = Query(
                 query_id=query_id,
                 query=query_text,
                 removed=False,

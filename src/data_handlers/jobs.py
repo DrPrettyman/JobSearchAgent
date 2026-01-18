@@ -1,6 +1,5 @@
 """Database-backed job storage."""
 
-import json
 from enum import Enum
 from pathlib import Path
 from uuid import uuid4
@@ -10,6 +9,7 @@ from .utils import datetime_iso
 
 
 class JobStatus(str, Enum):
+    TEMP = "temp"
     PENDING = "pending"
     IN_PROGRESS = "in_progress"
     APPLIED = "applied"
@@ -69,6 +69,7 @@ class Job:
         company: str,
         title: str,
         link: str,
+        status: JobStatus | str = JobStatus.PENDING,
         location: str = "",
         description: str = "",
         full_description: str = "",
@@ -82,7 +83,7 @@ class Job:
             company=company,
             title=title,
             date_found=datetime_iso(),
-            status=JobStatus.PENDING,
+            status=JobStatus(status),
             link=link,
             location=location,
             description=description,
@@ -133,6 +134,16 @@ class Job:
     @property
     def query_ids(self) -> list[int]:
         return self._query_ids
+
+    def add_query_ids(self, query_ids: int | list[int]):
+        """Add a query ID to this job if not already present."""
+        if isinstance(query_ids, int):
+            query_ids = [query_ids]
+            
+        for query_id in query_ids:
+            if query_id not in self._query_ids:
+                self._query_ids.append(query_id)
+                DATABASE.add_job_query_id(self._username, self._id, query_id)
 
     # --- Mutable properties with auto-persist ---
 
@@ -252,7 +263,7 @@ class Job:
         if not value:
             DATABASE.clear_job_questions(self._username, self._id)
         # Note: For adding questions, use the append pattern which is handled
-        # by the JobsDB wrapper or direct database calls
+        # by the JobHandler wrapper or direct database calls
 
     def add_question(self, question: str):
         """Add a new question."""
@@ -296,12 +307,11 @@ class Job:
         return None
 
 
-class JobsDB:
-    """Database-backed job collection with same interface as Jobs."""
+class JobHandler:
+    """Database-backed job collection."""
 
-    def __init__(self, username: str, temp_dir: Path):
+    def __init__(self, username: str):
         self._username = username
-        self._temp_file = temp_dir / "search_temp.jsonl"
         self._jobs_cache: dict[str, Job] = {}
         self._load_all()
 
@@ -363,19 +373,59 @@ class JobsDB:
     def number_pending(self) -> int:
         return DATABASE.count_jobs_by_status(self._username, "pending")
 
-    def has_link(self, link: str) -> bool:
-        """Check if a job with this link already exists."""
-        return DATABASE.job_has_link(self._username, link)
+    @property
+    def number_temp(self) -> int:
+        return DATABASE.count_jobs_by_status(self._username, "temp")
 
-    def add(self, company: str, title: str, link: str, location: str = "",
-            description: str = "", full_description: str = "",
-            addressee: str | None = None, query_ids: list[int] = None) -> Job:
+    def has_link(self, link: str, exclude_temp: bool = False) -> bool:
+        """Check if a job with this link already exists.
+
+        Args:
+            exclude_temp: If True, excludes jobs with TEMP status.
+        """
+        return DATABASE.job_has_link(self._username, link, exclude_temp=exclude_temp)
+
+    def add(self, 
+            company: str, 
+            title: str, 
+            link: str, 
+            location: str = "",
+            description: str = "", 
+            full_description: str = "",
+            addressee: str | None = None, 
+            query_ids: list[int] = None) -> Job:
         """Add a new job and return it."""
         job = Job.create(
             username=self._username,
             company=company,
             title=title,
             link=link,
+            status=JobStatus.PENDING,
+            location=location,
+            description=description,
+            full_description=full_description,
+            addressee=addressee,
+            query_ids=query_ids
+        )
+        self._jobs_cache[job.id] = job
+        return job
+    
+    def add_temp(self, 
+            company: str, 
+            title: str, 
+            link: str, 
+            location: str = "",
+            description: str = "", 
+            full_description: str = "",
+            addressee: str | None = None, 
+            query_ids: list[int] = None) -> Job:
+        """Add a new job and return it."""
+        job = Job.create(
+            username=self._username,
+            company=company,
+            title=title,
+            link=link,
+            status=JobStatus.TEMP,
             location=location,
             description=description,
             full_description=full_description,
@@ -389,39 +439,17 @@ class JobsDB:
         """Get a job by ID."""
         return self._jobs_cache.get(job_id)
 
-    # --- Temp file operations for crash recovery ---
+    def get_temp_jobs(self) -> list[Job]:
+        """Get all jobs with TEMP status."""
+        return [j for j in self._jobs_cache.values() if j.status == JobStatus.TEMP]
 
-    @property
-    def temp_file(self) -> Path:
-        """Path to temporary JSONL file for crash recovery."""
-        return self._temp_file
+    def delete_job(self, job_id: str):
+        """Delete a job from database and cache."""
+        DATABASE.delete_job(self._username, job_id)
+        self._jobs_cache.pop(job_id, None)
 
-    def append_to_temp(self, query_id: str, jobs: list[dict]):
-        """Append a search result record to the temp file."""
-        record = {
-            "query_str": query_id,
-            "timestamp": datetime_iso(),
-            "jobs": jobs
-        }
-        with open(self._temp_file, "a") as f:
-            f.write(json.dumps(record) + "\n")
-
-    def read_temp(self) -> list[dict]:
-        """Read all records from temp file."""
-        if not self._temp_file.exists():
-            return []
-        records = []
-        with open(self._temp_file, "r") as f:
-            for line in f:
-                line = line.strip()
-                if line:
-                    try:
-                        records.append(json.loads(line))
-                    except json.JSONDecodeError:
-                        continue
-        return records
-
-    def clear_temp(self):
-        """Clear the temp file after successful processing."""
-        if self._temp_file.exists():
-            self._temp_file.unlink()
+    def promote_temp_jobs(self, job_ids: list[str]):
+        """Change TEMP jobs to PENDING status."""
+        for job_id in job_ids:
+            if job_id in self._jobs_cache:
+                self._jobs_cache[job_id].status = JobStatus.PENDING
