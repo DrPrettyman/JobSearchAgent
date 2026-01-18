@@ -5,13 +5,18 @@ import urllib.request
 
 from utils import run_claude, scrape, extract_url_slug
 from data_handlers.utils import datetime_iso
+from services.progress import ProgressCallbackType, print_progress
 
 
-def fetch_linkedin_profile(linkedin_url: str) -> str | None:
+def fetch_linkedin_profile(
+    linkedin_url: str,
+    on_progress: ProgressCallbackType = print_progress
+) -> str | None:
     """Fetch and extract professional info from a LinkedIn profile using Claude WebFetch.
 
     Args:
         linkedin_url: Full LinkedIn profile URL
+        on_progress: Callback for progress reporting
 
     Returns:
         Extracted professional information as a string, or empty string on failure
@@ -35,7 +40,7 @@ Return the information in a clean, readable format. If you cannot access the pro
     )
 
     if not success:
-        print(f"  LinkedIn fetch failed: {response}")
+        on_progress(f"  LinkedIn fetch failed: {response}", "error")
         return None
 
     response = response.strip()
@@ -45,11 +50,15 @@ Return the information in a clean, readable format. If you cannot access the pro
     return response
 
 
-def fetch_github_profile(github_url: str) -> str | None:
+def fetch_github_profile(
+    github_url: str,
+    on_progress: ProgressCallbackType = print_progress
+) -> str | None:
     """Fetch GitHub profile info via API and summarize with Claude.
 
     Args:
         github_url: GitHub profile URL or username
+        on_progress: Callback for progress reporting
 
     Returns:
         Summary of GitHub profile as a string, or empty string on failure
@@ -72,7 +81,7 @@ def fetch_github_profile(github_url: str) -> str | None:
         user_response = urllib.request.urlopen(user_req, timeout=30)
         user_data = json.loads(user_response.read().decode('utf-8'))
     except Exception as e:
-        print(f"  Could not fetch GitHub user: {e}")
+        on_progress(f"  Could not fetch GitHub user: {e}", "error")
         return None
 
     # Fetch repos
@@ -85,7 +94,7 @@ def fetch_github_profile(github_url: str) -> str | None:
         repos_response = urllib.request.urlopen(repos_req, timeout=30)
         repos_data = json.loads(repos_response.read().decode('utf-8'))
     except Exception as e:
-        print(f"  Could not fetch GitHub repos: {e}")
+        on_progress(f"  Could not fetch GitHub repos: {e}", "warning")
 
     # Prepare data for Claude
     profile_info = {
@@ -135,11 +144,15 @@ Keep the summary concise but informative (3-5 paragraphs)."""
     return response.strip()
 
 
-def fetch_website_content(url: str) -> str | None:
+def fetch_website_content(
+    url: str,
+    on_progress: ProgressCallbackType = print_progress
+) -> str | None:
     """Scrape a website and extract relevant professional information.
 
     Args:
         url: Website URL to scrape
+        on_progress: Callback for progress reporting
 
     Returns:
         Extracted professional information as a string, or empty string on failure
@@ -147,7 +160,7 @@ def fetch_website_content(url: str) -> str | None:
     try:
         html_text = scrape(url)
     except Exception as e:
-        print(f"  Could not scrape {url}: {e}")
+        on_progress(f"  Could not scrape {url}: {e}", "error")
         return None
 
     if not html_text or len(html_text) < 100:
@@ -181,13 +194,17 @@ Website content:
     return response
 
 
-def fetch_online_presence(urls: list[str]) -> list[dict]:
+def fetch_online_presence(
+    urls: list[str],
+    on_progress: ProgressCallbackType = print_progress
+) -> list[dict]:
     """Fetch online presence from a list of URLs.
 
     Automatically detects LinkedIn, GitHub, or generic websites.
 
     Args:
         urls: List of URLs to fetch
+        on_progress: Callback for progress reporting
 
     Returns:
         List of dicts with keys: site, time_fetched, content
@@ -198,25 +215,25 @@ def fetch_online_presence(urls: list[str]) -> list[dict]:
         url_lower = url.lower()
 
         if "linkedin.com" in url_lower:
-            print(f"Fetching LinkedIn profile: /in/{extract_url_slug(url)}")
-            content = fetch_linkedin_profile(url)
+            on_progress(f"Fetching LinkedIn profile: /in/{extract_url_slug(url)}", "info")
+            content = fetch_linkedin_profile(url, on_progress=on_progress)
         elif "github.com" in url_lower:
-            print(f"Fetching GitHub profile: {url}")
-            content = fetch_github_profile(url)
+            on_progress(f"Fetching GitHub profile: {url}", "info")
+            content = fetch_github_profile(url, on_progress=on_progress)
         else:
-            print(f"Fetching website: {url}")
-            content = fetch_website_content(url)
-            
+            on_progress(f"Fetching website: {url}", "info")
+            content = fetch_website_content(url, on_progress=on_progress)
+
         results.append({
-                "site": url,
-                "time_fetched": datetime_iso(),
-                "content": content,
-                "success": content is not None
-            })
+            "site": url,
+            "time_fetched": datetime_iso(),
+            "content": content,
+            "success": content is not None
+        })
 
         if content:
-            print(f"  Got {len(content)} chars")
+            on_progress(f"  Got {len(content)} chars", "success")
         else:
-            print("  No content extracted")
+            on_progress("  No content extracted", "warning")
 
     return results

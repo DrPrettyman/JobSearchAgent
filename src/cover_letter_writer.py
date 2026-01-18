@@ -11,6 +11,7 @@ from pathlib import Path
 
 from utils import run_claude
 from prompts import AI_WRITING_GUIDELINES
+from services.progress import ProgressCallbackType, print_progress
 
 LATEX_TEMPLATE = r"""\documentclass[11pt]{article}
 
@@ -63,7 +64,7 @@ Yours <INSERT_SIGNOFF>,
 
 \vspace{24pt}
 
-Joshua Prettyman
+<INSERT_SIGNATURE_NAME>
 
 \end{document}
 """
@@ -87,7 +88,11 @@ def escape_latex(text: str) -> str:
     return text
 
 
-def compile_latex_to_pdf(latex_source: str, output_path: Path) -> bool:
+def compile_latex_to_pdf(
+    latex_source: str,
+    output_path: Path,
+    on_progress: ProgressCallbackType = print_progress
+) -> bool:
     """Compile LaTeX source to PDF."""
     with tempfile.TemporaryDirectory() as tmpdir:
         tex_file = Path(tmpdir) / "latex_source.tex"
@@ -101,7 +106,7 @@ def compile_latex_to_pdf(latex_source: str, output_path: Path) -> bool:
                 text=True
             )
             if result.returncode != 0:
-                print(f"LaTeX compilation error:\n{result.stdout}\n{result.stderr}")
+                on_progress(f"LaTeX compilation error:\n{result.stdout}\n{result.stderr}", "error")
                 return False
 
         # Copy PDF to output location
@@ -201,13 +206,22 @@ class LetterWriter:
         latex_template = latex_template.replace('<INSERT_ADDRESSEE>', addressee_escaped)
         latex_template = latex_template.replace('<INSERT_BODY>', cover_letter_formatted)
         latex_template = latex_template.replace('<INSERT_SIGNOFF>', self.sign_off)
+        latex_template = latex_template.replace('<INSERT_SIGNATURE_NAME>', escape_latex(self.user_name))
 
         return latex_template      
 
-    def save_pdf(self, output_dir: Path) -> Path | None:
+    def save_pdf(
+        self,
+        output_dir: Path,
+        on_progress: ProgressCallbackType = print_progress
+    ) -> Path | None:
         """Save PDF cover letter to file."""
         output_path = output_dir / f"{self.filename}.pdf"
-        compiled = compile_latex_to_pdf(self.latex_source_cover_letter, output_path)
+        compiled = compile_latex_to_pdf(
+            self.latex_source_cover_letter,
+            output_path,
+            on_progress=on_progress
+        )
         if compiled:
             return output_path
         else:

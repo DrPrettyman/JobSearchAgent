@@ -1,12 +1,10 @@
 """CLI menu functions for JobSearch application."""
 
-import json
 import os
 import platform
 import shutil
 import subprocess
 import time
-import re
 import urllib.parse
 import webbrowser
 from pathlib import Path
@@ -105,7 +103,6 @@ from InquirerPy import inquirer
 from InquirerPy.validator import PathValidator
 
 from data_handlers import User, Job, JobStatus
-from data_handlers.utils import datetime_iso
 from cli_utils import (
     Colors,
     ASCII_ART_JOBSEARCH,
@@ -122,16 +119,12 @@ from cli_utils import (
 )
 from utils import (
     combined_documents_as_string,
-    run_claude,
     summarize_source_documents,
-    summarize_online_presence,
     combine_documents,
-    extract_json_from_response,
 )
-from online_presence import fetch_online_presence
 from search_jobs import JobSearcher
-from cover_letter_writer import LetterWriter, generate_cover_letter_topics, generate_cover_letter_body
-from question_answerer import generate_answer, generate_answers_batch
+from services import CoverLetterService, UserProfileService
+from question_answerer import generate_answers_batch
 
 # Ordered by precedence (most prestigious first)
 CREDENTIAL_OPTIONS = [
@@ -144,85 +137,30 @@ class JobOptions:
     def __init__(self, user: User, job_id: str):
         self.user: User = user
         self.job: Job = user.job_handler[job_id]
-        
-        self._letter_compiler = None
-        
-    @property
-    def letter_compiler(self):
-        if self._letter_compiler is None:
-            # Get first non-LinkedIn website for the cover letter header
-            non_linkedin_sites = [s for s in self.user.websites if "linkedin.com" not in s.lower()]
-            self._letter_compiler = LetterWriter(
-                company=self.job.company,
-                title=self.job.title,
-                cover_letter_body=self.job.cover_letter_body,
-                user_name=self.user.name,
-                user_email=self.user.email,
-                user_linkedin_url=self.user.linkedin_url,
-                user_credentials=self.user.credentials,
-                user_website=non_linkedin_sites[0] if non_linkedin_sites else None,
-                addressee=self.job.addressee
-            )
-        return self._letter_compiler
-        
-    def export_pdf_cover_letter(self):
-        pdf_path = self.letter_compiler.save_pdf(output_dir=self.user.cover_letter_output_dir)
-        if pdf_path is None:
-            print(f"{Colors.RED}Failed to compile cover letter as PDF file.{Colors.RESET}\n")
-            return
 
-        self.job.set_cover_letter_pdf_path(pdf_path.resolve())
+    def export_pdf_cover_letter(self):
+        """Export cover letter to PDF using the service."""
+        service = CoverLetterService(on_progress=lambda msg, level: print(
+            f"{Colors.RED if level == 'error' else Colors.CYAN}{msg}{Colors.RESET}"
+        ))
+        result = service.export_pdf(job=self.job, user=self.user)
+        if not result.success:
+            print(f"{Colors.RED}{result.message}{Colors.RESET}\n")
         
     def generate_cover_letter_for_job(self):
         """Generate cover letter content for a job."""
-        # Use full description if available, otherwise use summary
-        job_description = self.job.full_description or self.job.description
+        print(f"\n{Colors.CYAN}Generating cover letter...{Colors.RESET}")
 
-        if not job_description:
-            print(f"\n{Colors.RED}Cannot generate: no job description available.{Colors.RESET}\n")
-            return
+        service = CoverLetterService(on_progress=lambda msg, level: print(
+            f"{Colors.GREEN if level == 'success' else Colors.YELLOW if level == 'warning' else Colors.CYAN}{msg}{Colors.RESET}"
+        ))
 
-        # Prefer comprehensive summary, fall back to combined docs
-        user_background = self.user.comprehensive_summary or combined_documents_as_string(self.user.combined_source_documents)
+        result = service.generate(job=self.job, user=self.user)
 
-        if not user_background:
-            print(f"\n{Colors.RED}Cannot generate: no source documents configured.{Colors.RESET}")
-            print(f"{Colors.DIM}Add your resume/CV in User Info first.{Colors.RESET}\n")
-            return
-
-        if not self.user.comprehensive_summary:
-            print(f"{Colors.YELLOW}Tip: Generate a comprehensive summary for better cover letters.{Colors.RESET}")
-
-        # Step 1: Generate cover letter topics (if not already present)
-        if not self.job.cover_letter_topics:
-            print(f"\n{Colors.CYAN}Analyzing job description...{Colors.RESET}")
-            topics = generate_cover_letter_topics(
-                job_description=job_description,
-                user_background=user_background
-            )
-            if not topics:
-                print(f"{Colors.RED}Failed to analyze job description.{Colors.RESET}\n")
-                return
-            self.job.cover_letter_topics = topics
-            print(f"{Colors.GREEN}✓ Identified {len(topics)} key topics{Colors.RESET}")
-
-        # Step 2: Generate cover letter body from topics
-        print(f"{Colors.CYAN}Generating cover letter...{Colors.RESET}")
-
-        body = generate_cover_letter_body(
-            job_title=self.job.title,
-            company=self.job.company,
-            job_description=job_description,
-            user_background=user_background,
-            cover_letter_topics=self.job.cover_letter_topics
-        )
-
-        if body:
-            self.job.cover_letter_body = body
+        if result.success:
             print(f"{Colors.GREEN}✓ Cover letter generated!{Colors.RESET}\n")
-            self.export_pdf_cover_letter()
         else:
-            print(f"{Colors.RED}Failed to generate cover letter.{Colors.RESET}\n")
+            print(f"{Colors.RED}{result.message}{Colors.RESET}\n")
 
     def add_questions(self):
         """Allow user to paste application questions."""
@@ -1197,103 +1135,41 @@ class UserOptions:
 
     def refresh_source_documents(self):
         """Re-read source documents and regenerate summary."""
-        if not self.user.source_document_paths:
-            print("No source documents configured.")
-            return
+        service = UserProfileService(on_progress=lambda msg, level: print(msg))
+        result = service.refresh_source_documents(self.user)
 
-        print("Re-reading source documents...")
-        self.user.combined_source_documents = combine_documents(self.user.source_document_paths)
-
-        if self.user.combined_source_documents:
-            print("Generating summary...")
-            summary = summarize_source_documents(combined_documents_as_string(self.user.combined_source_documents))
-            if summary:
-                self.user.source_document_summary = summary
-                print("Summary updated.")
-            else:
-                print("Could not generate summary.")
+        if result.success:
+            print(f"{Colors.GREEN}✓ {result.message}{Colors.RESET}")
         else:
-            print("No content found in source documents.")
+            print(f"{Colors.RED}{result.message}{Colors.RESET}")
 
     def refresh_online_presence(self):
         """Fetch online presence and regenerate summary."""
-        urls = self.user.websites
+        service = UserProfileService(on_progress=lambda msg, _: print(msg))
+        result = service.refresh_online_presence(self.user)
 
-        if not urls:
-            print("No online presence URLs configured.")
-            return
-
-        print("Fetching online presence...")
-        results = fetch_online_presence(urls)
-
-        self.user.clear_online_presence()
-        for entry in results:
-            self.user.add_online_presence(
-                site=entry["site"], 
-                content=entry["content"], 
-                time_fetched=entry["time_fetched"],
-                success=entry["success"]
-                )
-
-        if self.user.online_presence:
-            print("Generating summary...")
-            summary = summarize_online_presence(self.user.online_presence)
-            if summary:
-                self.user.online_presence_summary = summary
-            else:
-                print("Could not generate summary.")
-
-        print(f"Fetched {len(results)} profiles.")
+        if result.success:
+            print(f"{Colors.GREEN}✓ {result.message}{Colors.RESET}")
+        else:
+            print(f"{Colors.RED}{result.message}{Colors.RESET}")
 
     def generate_job_title_and_location_suggestions(self):
         """Use Claude to suggest job titles and locations from source documents."""
-        user_background = self.user.comprehensive_summary or combined_documents_as_string(self.user.combined_source_documents)
-        if not user_background:
-            print("No source documents or comprehensive summary available.")
-            return {"titles": [], "locations": []}
-        
-        existing_titles_list = sorted(set(self.user.desired_job_titles) | set(self._job_title_suggestions))
-        if existing_titles_list:
-            existing_titles = ", ".join(f"'{t}'" for t in existing_titles_list)
-        else:
-            existing_titles = "None."
-            
-        existing_locations_list = sorted(set(self.user.desired_job_locations) | set(self._job_location_suggestions))
-        if existing_locations_list:
-            existing_locations = ", ".join(f"'{t}'" for t in existing_locations_list)
-        else:
-            existing_locations = "None."
+        service = UserProfileService(on_progress=lambda msg, _: print(msg))
 
-        print("Analyzing your background to suggest job titles and locations...")
+        existing_titles = list(set(self.user.desired_job_titles) | set(self._job_title_suggestions))
+        existing_locations = list(set(self.user.desired_job_locations) | set(self._job_location_suggestions))
 
-        prompt = f"""Analyze the following CV/resume documents and suggest:
-1. A list of 5-10 job titles this person would be suitable for
-2. A list of 3-5 preferred job locations based on any hints in the documents. Example locations ["Manchester", "UK, Remote", "Europe, Remote"]
+        result = service.suggest_job_titles_and_locations(
+            self.user,
+            existing_titles=existing_titles,
+            existing_locations=existing_locations
+        )
 
-Respond ONLY with valid JSON in this exact format, no other text:
-{{"job_titles": ["Title 1", "Title 2"], "job_locations": ["Location 1", "Location 2"]}}
+        if not result.success:
+            print(f"{Colors.RED}{result.message}{Colors.RESET}")
 
-Existing titles: {existing_titles}
-Existing locations: {existing_locations}
-
-Background:
-{user_background}"""
-
-        success, response = run_claude(prompt, timeout=180)
-
-        if not success:
-            print(f"Claude analysis failed: {response}")
-            return {"titles": [], "locations": []}
-
-        try:
-            json_str = extract_json_from_response(response)
-            suggestions = json.loads(json_str)
-            suggested_titles = suggestions.get("job_titles", [])
-            suggested_locations = suggestions.get("job_locations", [])
-            return {"titles": suggested_titles, "locations": suggested_locations}
-        except json.JSONDecodeError:
-            print("Could not parse Claude's response.")
-            return {"titles": [], "locations": []}
+        return {"titles": result.data.get("titles", []), "locations": result.data.get("locations", [])}
 
     def create_new_job_title_and_location_suggestions(self):
         results = self.generate_job_title_and_location_suggestions()
@@ -1306,85 +1182,18 @@ Background:
     
     def generate_comprehensive_summary(self):
         """Generate a comprehensive summary combining all user information."""
-        source_docs = combined_documents_as_string(self.user.combined_source_documents)
+        service = UserProfileService(on_progress=lambda msg, _: print(msg))
+        result = service.generate_comprehensive_summary(self.user)
 
-        online_content = ""
-        if self.user.online_presence:
-            online_parts = []
-            for entry in self.user.online_presence:
-                site = entry.get("site", "Unknown")
-                content = entry.get("content", "")
-                if content:
-                    online_parts.append(f"[{site}]\n{content}")
-            online_content = "\n\n".join(online_parts)
-
-        if not source_docs and not online_content:
-            print("No source documents or online presence data available.")
-            return
-
-        print("Generating comprehensive summary...")
-
-        prompt = f"""Create a comprehensive professional summary from the following information.
-
-SOURCE DOCUMENTS (CV, resume, etc.):
-{source_docs}
-
-ONLINE PRESENCE (LinkedIn, GitHub, portfolio):
-{online_content}
-
-Create a COMPREHENSIVE summary that includes:
-1. Professional summary/headline
-2. COMPLETE work experience with:
-   - Company names
-   - Job titles
-   - Employment dates (month/year to month/year)
-   - Key responsibilities and achievements
-3. COMPLETE academic background with:
-   - Institutions
-   - Degrees and fields of study
-   - Graduation dates (if available)
-   - Notable achievements (publications, awards)
-4. Technical skills (categorized)
-5. Certifications and credentials
-6. Languages (if mentioned)
-7. Notable projects or portfolio items
-
-IMPORTANT:
-- Include ALL dates mentioned (employment periods, graduation years, etc.)
-- Be precise with job titles and company names
-- Don't summarize away important details
-- Keep all quantified achievements (metrics, percentages, etc.)
-- Maintain chronological order for experience and education
-- If information is missing or unclear, note it rather than guessing
-
-Return the summary in a clean, structured markdown text format (not JSON). Begin with the heading '# PROFESSIONAL SUMMARY'.
-The summary should be thorough enough to write tailored cover letters without needing the original documents."""
-
-        success, response = run_claude(prompt, timeout=300)
-
-        if not success or not isinstance(response, str):
-            print(f"Failed to generate summary: {response}")
-            return
-        response = response.strip()
-        if not response:
-            print(f"Failed to generate summary")
-            return
-
-        # Truncate to start at "# PROFESSIONAL SUMMARY" if present (removes preamble)
-        heading = "# PROFESSIONAL SUMMARY"
-        if heading in response:
-            response = response[response.index(heading):]
-            
-        response = re.sub(r"(?<=[0-9A-Za-z])([.?!\"\']?)[^0-9A-Za-z]+$", r"\1", response)
-
-        self.user.comprehensive_summary = response
-        self.user.comprehensive_summary_generated_at = datetime_iso()
-        print("Comprehensive summary generated and saved.")
-
-        preview = self.user.comprehensive_summary[:500]
-        if len(self.user.comprehensive_summary) > 500:
-            preview += "..."
-        print(f"\nPreview:\n{preview}")
+        if result.success:
+            print(f"{Colors.GREEN}✓ {result.message}{Colors.RESET}")
+            if result.data and result.data.get("preview"):
+                preview = result.data["preview"]
+                if len(self.user.comprehensive_summary) > 500:
+                    preview += "..."
+                print(f"\nPreview:\n{preview}")
+        else:
+            print(f"{Colors.RED}{result.message}{Colors.RESET}")
 
     def view_comprehensive_summary(self):
         """View the full comprehensive summary."""
@@ -1444,55 +1253,13 @@ The summary should be thorough enough to write tailored cover letters without ne
 
     def create_search_queries(self):
         """Create search queries from the user's information."""
-        if not self.user.desired_job_titles:
-            print("No job titles configured. Configure job titles first.")
-            return
+        service = UserProfileService(on_progress=lambda msg, _: print(msg))
+        result = service.create_search_queries(self.user)
 
-        if not self.user.desired_job_locations:
-            print("No job locations configured. Configure job locations first.")
-            return
-
-        print("Generating search queries...")
-
-        user_background = self.user.comprehensive_summary or combined_documents_as_string(self.user.combined_source_documents)
-
-        prompt = f"""Based on this job seeker's profile, create 30 effective job search queries.
-
-Job titles of interest: {self.user.desired_job_titles}
-Preferred locations: {self.user.desired_job_locations}
-
-Background summary:
-{user_background}
-
-Create varied queries using:
-- Different job title variations and related roles
-- Different location combinations
-- Site-specific searches (site:linkedin.com/jobs, site:lever.co, site:greenhouse.io, site:weworkremotely.com, site:jobs.ashbyhq.com)
-- Industry/tech stack keywords relevant to their background
-- Mix of specific and broader searches
-
-Return ONLY a JSON array of 30 query strings, no other text:
-["query 1", "query 2", ...]"""
-
-        success, response = run_claude(prompt, timeout=180)
-
-        if not success:
-            print(f"Failed to generate queries: {response}")
-            return
-
-        try:
-            json_str = extract_json_from_response(response)
-            queries = json.loads(json_str)
-
-            if not isinstance(queries, list):
-                print("Invalid response format from Claude.")
-                return
-
-            self.user.query_handler.save(queries)
-            print(f"Created {len(queries)} search queries.")
-
-        except json.JSONDecodeError:
-            print("Could not parse Claude's response as JSON.")
+        if result.success:
+            print(f"{Colors.GREEN}✓ {result.message}{Colors.RESET}")
+        else:
+            print(f"{Colors.RED}{result.message}{Colors.RESET}")
 
     def user_info_menu(self):
         """Show user info and provide edit options."""

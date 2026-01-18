@@ -2,6 +2,8 @@
 
 import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Callable
+
 from utils import (
     counter,
     run_claude,
@@ -10,17 +12,21 @@ from utils import (
     extract_json_from_response,
 )
 from data_handlers import User, Query
+from services.progress import ProgressCallbackType, print_progress
 
 
 REQUIRED_JOB_FIELDS = ("company", "title", "link")
 
 
-def search_query(query_str: str) -> list[dict]:
+def search_query(
+    query_str: str,
+    on_progress: ProgressCallbackType = print_progress
+) -> list[dict]:
     """Search for jobs using a query and return list of job info dicts."""
 
     prompt = f"""Search the web for this job search query: {query_str}
 
-Find job postings that match this query. 
+Find job postings that match this query.
 Follow links to find the specific job posting if possible (the page which contains the job description), not a page listing many jobs.
 Extract basic info from results.
 
@@ -46,7 +52,7 @@ Focus on actual job postings, not job board listing pages."""
     )
 
     if not success:
-        print(f"  Search failed: {response}")
+        on_progress(f"  Search failed: {response}", "error")
         return []
 
     try:
@@ -60,17 +66,20 @@ Focus on actual job postings, not job board listing pages."""
                 good_jobs.append(job)
         return good_jobs
     except json.JSONDecodeError:
-        print("  Could not parse response as JSON")
+        on_progress("  Could not parse response as JSON", "error")
 
     return []
 
 
-def fetch_full_description(url: str) -> str:
+def fetch_full_description(
+    url: str,
+    on_progress: ProgressCallbackType = print_progress
+) -> str:
     """Scrape a job posting URL and extract the full description."""
     try:
         html_text = scrape(url)
     except Exception as e:
-        print(f"    Could not scrape {url}: {e}")
+        on_progress(f"    Could not scrape {url}: {e}", "error")
         return ""
 
     if not html_text or len(html_text) < 100:
@@ -96,7 +105,7 @@ Page content:
 
 def filter_unsuitable_jobs(jobs_summary: str, user_background: str) -> list[int]:
     """Use Claude to filter out jobs that don't match user's background."""
- 
+
     prompt = f"""Review these job postings against the candidate's background and return only suitable matches.
 
 Candidate background:
@@ -124,15 +133,20 @@ If no jobs are suitable, return: []"""
             return None
     except (json.JSONDecodeError, IndexError):
         return None
-    
+
     return good_indices
-    
-    
+
+
 class JobSearcher:
     """Handles job searching and processing for a user."""
 
-    def __init__(self, user: User):
+    def __init__(
+        self,
+        user: User,
+        on_progress: ProgressCallbackType = print_progress
+    ):
         self.user = user
+        self.on_progress = on_progress
 
     def _filter_unsuitable(self, jobs: list[dict], chunk_size: int = 20) -> list[int]:
         """Use Claude to filter out jobs that don't match user's background.
@@ -158,7 +172,7 @@ class JobSearcher:
         for i in range(0, len(jobs), chunk_size):
             chunk = jobs[i:i + chunk_size]
             chunk_num = i // chunk_size + 1
-            print(f"  Filtering chunk {chunk_num}/{num_chunks} ({len(chunk)} jobs)...")
+            self.on_progress(f"  Filtering chunk {chunk_num}/{num_chunks} ({len(chunk)} jobs)...", "info")
 
             jobs_summary = json.dumps([{
                 "index": j["index"],
@@ -182,12 +196,12 @@ class JobSearcher:
 
     def _search_for_jobs(self, queries: list[Query]):
         """Search for jobs using all queries, creating TEMP jobs for crash recovery."""
-        print(f"Searching with {len(queries)} queries...")
+        self.on_progress(f"Searching with {len(queries)} queries...", "info")
         jobs_created = 0
 
         for i, query in enumerate(queries, 1):
-            print(f"\n[{i}/{len(queries)}] {query.query[:60]}...")
-            jobs_found = search_query(query.query)
+            self.on_progress(f"\n[{i}/{len(queries)}] {query.query[:60]}...", "info")
+            jobs_found = search_query(query.query, on_progress=self.on_progress)
 
             for job_dict in jobs_found:
                 # Skip if missing required fields
@@ -205,15 +219,15 @@ class JobSearcher:
                     query_ids=[query.id]
                 )
                 jobs_created += 1
-                print(f"  Found: {job.title} at {job.company}")
+                self.on_progress(f"  Found: {job.title} at {job.company}", "success")
 
-        print(f"\nCreated {jobs_created} temp jobs")
-        
+        self.on_progress(f"\nCreated {jobs_created} temp jobs", "info")
+
     def _merge_temp_jobs(self):
         temp_jobs = self.user.job_handler.get_temp_jobs()
         if not temp_jobs:
             return
-        
+
         new_list = []
         while temp_jobs:
             j = temp_jobs.pop()
@@ -224,45 +238,44 @@ class JobSearcher:
                     break
             else:
                 new_list.append(j)
-        
+
     def _post_process_temp_jobs(self, fetch_descriptions: bool = True, max_workers: int = 5) -> list[str]:
         """Process TEMP jobs: fetch descriptions, filter unsuitable. Returns IDs of good jobs."""
         self._merge_temp_jobs()
 
         temp_jobs = self.user.job_handler.get_temp_jobs()
         if not temp_jobs:
-            print("\nNo temp jobs to process.")
+            self.on_progress("\nNo temp jobs to process.", "info")
             return []
 
-        print(f"\nProcessing {len(temp_jobs)} temp jobs...")
+        self.on_progress(f"\nProcessing {len(temp_jobs)} temp jobs...", "info")
 
         # Fetch full descriptions concurrently
         if fetch_descriptions:
-            print(f"\nFetching full descriptions ({max_workers} concurrent)...")
+            self.on_progress(f"\nFetching full descriptions ({max_workers} concurrent)...", "info")
 
             def fetch_for_job(job):
                 """Fetch description for a single job, return (job, description)."""
                 if job.full_description:
                     return job, None  # Already has description
-                return job, fetch_full_description(job.link)
+                return job, fetch_full_description(job.link, on_progress=self.on_progress)
 
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 futures = {executor.submit(fetch_for_job, job): job for job in temp_jobs}
 
                 for i, future in enumerate(as_completed(futures), 1):
                     job, full_desc = future.result()
-                    print(f"  [{i}/{len(temp_jobs)}] {job.title} at {job.company}...", end=" ")
 
                     if full_desc is None:
-                        print("Already has description")
+                        self.on_progress(f"  [{i}/{len(temp_jobs)}] {job.title} at {job.company}... Already has description", "info")
                     elif full_desc:
                         job.full_description = full_desc
-                        print(f"Got {len(full_desc)} chars")
+                        self.on_progress(f"  [{i}/{len(temp_jobs)}] {job.title} at {job.company}... Got {len(full_desc)} chars", "success")
                     else:
-                        print("No description extracted")
+                        self.on_progress(f"  [{i}/{len(temp_jobs)}] {job.title} at {job.company}... No description extracted", "warning")
 
         # Filter unsuitable jobs
-        print("\nFiltering unsuitable jobs...")
+        self.on_progress("\nFiltering unsuitable jobs...", "info")
         # Convert to dict format for filter function
         jobs_as_dicts = []
         for i, job in enumerate(temp_jobs):
@@ -301,7 +314,7 @@ class JobSearcher:
 
         # Check for existing TEMP jobs (crash recovery)
         if not queries and not self.user.job_handler.number_temp:
-            print("No search queries configured. Generate queries first.")
+            self.on_progress("No search queries configured. Generate queries first.", "warning")
             return
 
         # Run new searches (creates TEMP jobs)
@@ -310,10 +323,10 @@ class JobSearcher:
 
         # Process all TEMP jobs (fetch descriptions, filter unsuitable)
         good_job_ids = self._post_process_temp_jobs(fetch_descriptions=fetch_descriptions)
-        print(f"  {len(good_job_ids)} suitable jobs remaining")
+        self.on_progress(f"  {len(good_job_ids)} suitable jobs remaining", "info")
 
         if not good_job_ids:
-            print("\nNo suitable jobs found.")
+            self.on_progress("\nNo suitable jobs found.", "warning")
             return
 
         # Promote good TEMP jobs to PENDING
@@ -325,4 +338,4 @@ class JobSearcher:
             counter([j.query_ids for j in promoted_jobs if j])
         )
 
-        print(f"\nDone! Promoted {len(good_job_ids)} jobs to pending. Total jobs: {len(self.user.job_handler)}")
+        self.on_progress(f"\nDone! Promoted {len(good_job_ids)} jobs to pending. Total jobs: {len(self.user.job_handler)}", "success")
