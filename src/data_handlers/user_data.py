@@ -1,52 +1,21 @@
 from pathlib import Path
-import json
+from .globals import DATABASE
 from .jobs_db import JobsDB, JobStatus
 from .query_data import SearchQueries
 
 
 class User:
-    def __init__(self, directory_path: Path):
+    def __init__(self, username: str):
+        self._username = username
 
-        self.directory_path = directory_path
+        # Get or create user record
+        user_info, self._is_new_user = DATABASE.get_or_create_user(self._username)
 
-        if not directory_path.exists():
-            directory_path.mkdir()
+        # Initialize job and query handlers
+        self.job_handler = JobsDB(username=self._username, temp_dir=Path.home())
+        self.query_handler = SearchQueries(username=self._username)
 
-        self._file_path = directory_path / "user_info.json"
-
-        # Load or create user info
-        if not self._file_path.exists():
-            with open(self._file_path, "w") as f:
-                json.dump(
-                    {
-                        "name": "",
-                        "email": "",
-                        "credentials": [],
-                        "websites": [],
-                        "source_document_paths": [],
-                        "desired_job_titles": [],
-                        "desired_job_locations": [],
-                        "ai_credentials": {"method": "claude_local"}
-                    },
-                    f
-                )
-
-        with open(self._file_path, "r") as f:
-            user_info = json.load(f)
-
-        # Get username for database (use name or "default")
-        username = user_info.get("name", "") or "default"
-
-        # Initialize job handler with database
-        self.job_handler = JobsDB(
-            db_path=directory_path / "jobsearch.db",
-            username=username
-        )
-        self.query_handler = SearchQueries(
-            db=self.job_handler.database,
-            username=username
-        )
-
+        # Load data from database
         self._name = user_info.get("name", "")
         self._email = user_info.get("email", "")
         self._credentials = user_info.get("credentials", [])
@@ -62,42 +31,21 @@ class User:
         self._combined_source_documents = user_info.get("combined_source_documents", [])
         self._cover_letter_output_dir = user_info.get("cover_letter_output_dir", "")
         self._ai_credentials = user_info.get("ai_credentials", {"method": "claude_local"})
-        
-    def to_dict(self) -> dict:
-        return {
-            "name": self._name,
-            "email": self._email,
-            "credentials": self._credentials,
-            "websites": self._websites,
-            "source_document_paths": self._source_document_paths,
-            "desired_job_titles": self._desired_job_titles,
-            "desired_job_locations": self._desired_job_locations,
-            "online_presence": self._online_presence,
-            "source_document_summary": self._source_document_summary,
-            "online_presence_summary": self._online_presence_summary,
-            "comprehensive_summary": self._comprehensive_summary,
-            "comprehensive_summary_generated_at": self._comprehensive_summary_generated_at,
-            "combined_source_documents": self._combined_source_documents,
-            "cover_letter_output_dir": self._cover_letter_output_dir,
-            "ai_credentials": self._ai_credentials
-        }    
-    
-    def is_new_user(self):
-        data = self.to_dict()
-        # Exclude ai_credentials from check since it always has a default value
-        data.pop("ai_credentials", None)
-        for value in data.values():
-            if value:
-                return False
-        return True
 
-    def save(self):
-        with open(self._file_path, "w") as f:
-            json.dump(self.to_dict(), f, indent=4)
+    def is_new_user(self) -> bool:
+        """Check if user was just created (no existing data)."""
+        return self._is_new_user
+
+    # --- Scalar properties with auto-persist ---
 
     @property
     def name(self) -> str:
         return self._name
+
+    @name.setter
+    def name(self, value: str):
+        self._name = value
+        DATABASE.update_user_field(self._username, "name", value)
 
     @property
     def name_with_credentials(self) -> str:
@@ -110,57 +58,10 @@ class User:
     def email(self) -> str:
         return self._email
 
-    @property
-    def credentials(self) -> list[str]:
-        return self._credentials
-
-    @credentials.setter
-    def credentials(self, value: list[str]):
-        self._credentials = value
-
-    @property
-    def linkedin_url(self) -> str:
-        """Returns LinkedIn profile URL if one exists in websites."""
-        for url in self._websites:
-            if "linkedin.com" in url.lower():
-                return url
-        return ""
-
-    @property
-    def websites(self) -> list[str]:
-        return self._websites
-
-    def add_website(self, url: str):
-        if url not in self._websites:
-            self._websites.append(url)
-
-    def remove_website(self, url: str):
-        if url in self._websites:
-            self._websites.remove(url)
-
-    @property
-    def source_document_paths(self) -> list[str]:
-        return self._source_document_paths
-
-    @property
-    def desired_job_titles(self) -> list[str]:
-        return self._desired_job_titles
-
-    @property
-    def desired_job_locations(self) -> list[str]:
-        return self._desired_job_locations
-    
-    @property
-    def combined_source_documents(self) -> list[dict]:
-        return self._combined_source_documents
-
-    @combined_source_documents.setter
-    def combined_source_documents(self, value: list[dict]):
-        self._combined_source_documents = value
-
-    @property
-    def online_presence(self) -> list[dict]:
-        return self._online_presence
+    @email.setter
+    def email(self, value: str):
+        self._email = value
+        DATABASE.update_user_field(self._username, "email", value)
 
     @property
     def source_document_summary(self) -> str:
@@ -169,6 +70,7 @@ class User:
     @source_document_summary.setter
     def source_document_summary(self, value: str):
         self._source_document_summary = value
+        DATABASE.update_user_field(self._username, "source_document_summary", value)
 
     @property
     def online_presence_summary(self) -> str:
@@ -177,6 +79,7 @@ class User:
     @online_presence_summary.setter
     def online_presence_summary(self, value: str):
         self._online_presence_summary = value
+        DATABASE.update_user_field(self._username, "online_presence_summary", value)
 
     @property
     def comprehensive_summary(self) -> str:
@@ -185,6 +88,7 @@ class User:
     @comprehensive_summary.setter
     def comprehensive_summary(self, value: str):
         self._comprehensive_summary = value
+        DATABASE.update_user_field(self._username, "comprehensive_summary", value)
 
     @property
     def comprehensive_summary_generated_at(self) -> str:
@@ -193,6 +97,7 @@ class User:
     @comprehensive_summary_generated_at.setter
     def comprehensive_summary_generated_at(self, value: str):
         self._comprehensive_summary_generated_at = value
+        DATABASE.update_user_field(self._username, "comprehensive_summary_generated_at", value)
 
     @property
     def cover_letter_output_dir(self) -> Path:
@@ -200,13 +105,16 @@ class User:
         if self._cover_letter_output_dir:
             path = Path(self._cover_letter_output_dir)
         else:
-            path = self.directory_path / "cover_letters"
+            path = Path.home() / "JobSearchCoverLetters" / self._username
         path.mkdir(parents=True, exist_ok=True)
         return path
 
     @cover_letter_output_dir.setter
     def cover_letter_output_dir(self, value: str):
         self._cover_letter_output_dir = value
+        DATABASE.update_user_field(self._username, "cover_letter_output_dir", value)
+
+    # --- AI credentials ---
 
     @property
     def ai_credentials(self) -> dict:
@@ -219,6 +127,124 @@ class User:
     @ai_credentials.setter
     def ai_credentials(self, value: dict):
         self._ai_credentials = value
+        DATABASE.set_user_ai_credentials(
+            self._username,
+            value.get("method", "claude_local"),
+            value.get("api_key")
+        )
+
+    # --- Credentials list ---
+
+    @property
+    def credentials(self) -> list[str]:
+        return self._credentials
+
+    @credentials.setter
+    def credentials(self, value: list[str]):
+        self._credentials = value
+        DATABASE.set_user_credentials(self._username, value)
+
+    # --- Websites list ---
+
+    @property
+    def websites(self) -> list[str]:
+        return self._websites
+
+    @property
+    def linkedin_url(self) -> str:
+        """Returns LinkedIn profile URL if one exists in websites."""
+        for url in self._websites:
+            if "linkedin.com" in url.lower():
+                return url
+        return ""
+
+    def add_website(self, url: str):
+        if url not in self._websites:
+            self._websites.append(url)
+            DATABASE.set_user_websites(self._username, self._websites)
+
+    def remove_website(self, url: str):
+        if url in self._websites:
+            self._websites.remove(url)
+            DATABASE.set_user_websites(self._username, self._websites)
+
+    # --- Source document paths ---
+
+    @property
+    def source_document_paths(self) -> list[str]:
+        return self._source_document_paths
+
+    def add_source_document_path(self, path: str):
+        if path not in self._source_document_paths:
+            self._source_document_paths.append(path)
+            DATABASE.set_user_source_document_paths(self._username, self._source_document_paths)
+
+    def remove_source_document_path(self, path: str):
+        if path in self._source_document_paths:
+            self._source_document_paths.remove(path)
+            DATABASE.set_user_source_document_paths(self._username, self._source_document_paths)
+
+    def clear_source_document_paths(self):
+        """Clear all source document paths and related data."""
+        self._source_document_paths.clear()
+        self._combined_source_documents = []
+        self._source_document_summary = ""
+        DATABASE.set_user_source_document_paths(self._username, [])
+        DATABASE.set_user_combined_source_documents(self._username, [])
+        DATABASE.update_user_field(self._username, "source_document_summary", "")
+
+    # --- Desired job titles ---
+
+    @property
+    def desired_job_titles(self) -> list[str]:
+        return self._desired_job_titles
+
+    def add_desired_job_title(self, title: str):
+        if title not in self._desired_job_titles:
+            self._desired_job_titles.append(title)
+            DATABASE.set_user_desired_job_titles(self._username, self._desired_job_titles)
+
+    def remove_desired_job_title(self, title: str):
+        if title in self._desired_job_titles:
+            self._desired_job_titles.remove(title)
+            DATABASE.set_user_desired_job_titles(self._username, self._desired_job_titles)
+
+    # --- Desired job locations ---
+
+    @property
+    def desired_job_locations(self) -> list[str]:
+        return self._desired_job_locations
+
+    def add_desired_job_location(self, location: str):
+        if location not in self._desired_job_locations:
+            self._desired_job_locations.append(location)
+            DATABASE.set_user_desired_job_locations(self._username, self._desired_job_locations)
+
+    def remove_desired_job_location(self, location: str):
+        if location in self._desired_job_locations:
+            self._desired_job_locations.remove(location)
+            DATABASE.set_user_desired_job_locations(self._username, self._desired_job_locations)
+
+    # --- Combined source documents ---
+
+    @property
+    def combined_source_documents(self) -> list[dict]:
+        return self._combined_source_documents
+
+    @combined_source_documents.setter
+    def combined_source_documents(self, value: list[dict]):
+        self._combined_source_documents = value
+        DATABASE.set_user_combined_source_documents(self._username, value)
+
+    # --- Online presence ---
+
+    @property
+    def online_presence(self) -> list[dict]:
+        return self._online_presence
+
+    @property
+    def all_online_presence_sites(self):
+        return [entry["site"] for entry in self._online_presence]
 
     def add_online_presence(self, site: str, content: str, time_fetched: str, success: bool):
         """Add or update online presence entry for a site."""
@@ -230,53 +256,15 @@ class User:
             "fetch_success": success,
             "content": content
         })
-        
-    @property
-    def all_online_presence_sites(self):
-        return [entry["site"] for entry in self._online_presence]
+        DATABASE.add_user_online_presence(self._username, site, time_fetched, success, content)
 
     def clear_online_presence(self):
         """Clear all online presence data."""
         self._online_presence = []
+        DATABASE.clear_user_online_presence(self._username)
 
-    @name.setter
-    def name(self, value: str):
-        self._name = value
+    # --- Job operations ---
 
-    @email.setter
-    def email(self, value: str):
-        self._email = value
-
-    def add_source_document_path(self, path: str):
-        if path not in self._source_document_paths:
-            self._source_document_paths.append(path)
-
-    def add_desired_job_title(self, title: str):
-        if title not in self._desired_job_titles:
-            self._desired_job_titles.append(title)
-
-    def add_desired_job_location(self, location: str):
-        if location not in self._desired_job_locations:
-            self._desired_job_locations.append(location)
-
-    def remove_source_document_path(self, path: str):
-        if path in self._source_document_paths:
-            self._source_document_paths.remove(path)
-
-    def clear_source_document_paths(self):
-        """Clear all source document paths and related data."""
-        self._source_document_paths.clear()
-        self._combined_source_documents = []
-        self._source_document_summary = ""
-
-    def remove_desired_job_title(self, title: str):
-        if title in self._desired_job_titles:
-            self._desired_job_titles.remove(title)
-
-    def remove_desired_job_location(self, location: str):
-        if location in self._desired_job_locations:
-            self._desired_job_locations.remove(location)
-            
     def discard_job(self, job_id):
         job = self.job_handler.get(job_id)
         if job is None:
@@ -300,4 +288,3 @@ class User:
             self.query_handler.write_results(
                 {qid: 1 for qid in job.query_ids}
             )
-        

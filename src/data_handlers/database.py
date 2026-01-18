@@ -1,5 +1,6 @@
 """SQLite database connection and schema management."""
 
+import json
 import sqlite3
 from pathlib import Path
 from contextlib import contextmanager
@@ -96,6 +97,83 @@ CREATE TABLE IF NOT EXISTS search_query_results (
 CREATE INDEX IF NOT EXISTS idx_job_status_status ON job_status(username, status);
 CREATE INDEX IF NOT EXISTS idx_jobs_link ON jobs(username, link);
 CREATE INDEX IF NOT EXISTS idx_search_query_results ON search_query_results(username, query_id);
+
+-- User data tables
+CREATE TABLE IF NOT EXISTS users (
+    username TEXT PRIMARY KEY,
+    name TEXT DEFAULT '',
+    email TEXT DEFAULT '',
+    source_document_summary TEXT DEFAULT '',
+    online_presence_summary TEXT DEFAULT '',
+    comprehensive_summary TEXT DEFAULT '',
+    comprehensive_summary_generated_at TEXT DEFAULT '',
+    cover_letter_output_dir TEXT DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS user_ai_credentials (
+    username TEXT PRIMARY KEY,
+    method TEXT NOT NULL DEFAULT 'claude_local',
+    api_key TEXT,
+    FOREIGN KEY (username) REFERENCES users(username) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS user_credentials (
+    username TEXT NOT NULL,
+    position INTEGER NOT NULL,
+    credential TEXT NOT NULL,
+    PRIMARY KEY (username, position),
+    FOREIGN KEY (username) REFERENCES users(username) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS user_websites (
+    username TEXT NOT NULL,
+    position INTEGER NOT NULL,
+    url TEXT NOT NULL,
+    PRIMARY KEY (username, position),
+    FOREIGN KEY (username) REFERENCES users(username) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS user_source_document_paths (
+    username TEXT NOT NULL,
+    position INTEGER NOT NULL,
+    path TEXT NOT NULL,
+    PRIMARY KEY (username, position),
+    FOREIGN KEY (username) REFERENCES users(username) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS user_desired_job_titles (
+    username TEXT NOT NULL,
+    position INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    PRIMARY KEY (username, position),
+    FOREIGN KEY (username) REFERENCES users(username) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS user_desired_job_locations (
+    username TEXT NOT NULL,
+    position INTEGER NOT NULL,
+    location TEXT NOT NULL,
+    PRIMARY KEY (username, position),
+    FOREIGN KEY (username) REFERENCES users(username) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS user_online_presence (
+    username TEXT NOT NULL,
+    site TEXT NOT NULL,
+    time_fetched TEXT NOT NULL,
+    fetch_success INTEGER NOT NULL,
+    content TEXT DEFAULT '',
+    PRIMARY KEY (username, site),
+    FOREIGN KEY (username) REFERENCES users(username) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS user_combined_source_documents (
+    username TEXT NOT NULL,
+    position INTEGER NOT NULL,
+    document_json TEXT NOT NULL,
+    PRIMARY KEY (username, position),
+    FOREIGN KEY (username) REFERENCES users(username) ON DELETE CASCADE
+);
 """
 
 
@@ -444,3 +522,184 @@ class Database:
                 WHERE username = ? AND query_id = ?
             """, (username, query_id)).fetchone()
             return row["total"]
+
+    # --- User data operations ---
+
+    def get_or_create_user(self, username: str) -> tuple[dict, bool]:
+        """Get user data or create a new user record.
+
+        Returns:
+            Tuple of (user_dict, is_new) where is_new is True if user was just created.
+        """
+        with self.connection() as conn:
+            row = conn.execute("""
+                SELECT * FROM users WHERE username = ?
+            """, (username,)).fetchone()
+
+            if not row:
+                conn.execute("""
+                    INSERT INTO users (username) VALUES (?)
+                """, (username,))
+                conn.execute("""
+                    INSERT INTO user_ai_credentials (username) VALUES (?)
+                """, (username,))
+                return self._build_user_dict(username, conn), True
+
+            return self._build_user_dict(username, conn), False
+
+    def _build_user_dict(self, username: str, conn) -> dict:
+        """Build complete user dict from all tables."""
+        row = conn.execute("""
+            SELECT * FROM users WHERE username = ?
+        """, (username,)).fetchone()
+
+        user = dict(row) if row else {"username": username}
+
+        # AI credentials
+        ai_row = conn.execute("""
+            SELECT method, api_key FROM user_ai_credentials WHERE username = ?
+        """, (username,)).fetchone()
+        if ai_row:
+            user["ai_credentials"] = {"method": ai_row["method"]}
+            if ai_row["api_key"]:
+                user["ai_credentials"]["api_key"] = ai_row["api_key"]
+        else:
+            user["ai_credentials"] = {"method": "claude_local"}
+
+        # Credentials list
+        rows = conn.execute("""
+            SELECT credential FROM user_credentials WHERE username = ? ORDER BY position
+        """, (username,)).fetchall()
+        user["credentials"] = [r["credential"] for r in rows]
+
+        # Websites list
+        rows = conn.execute("""
+            SELECT url FROM user_websites WHERE username = ? ORDER BY position
+        """, (username,)).fetchall()
+        user["websites"] = [r["url"] for r in rows]
+
+        # Source document paths
+        rows = conn.execute("""
+            SELECT path FROM user_source_document_paths WHERE username = ? ORDER BY position
+        """, (username,)).fetchall()
+        user["source_document_paths"] = [r["path"] for r in rows]
+
+        # Desired job titles
+        rows = conn.execute("""
+            SELECT title FROM user_desired_job_titles WHERE username = ? ORDER BY position
+        """, (username,)).fetchall()
+        user["desired_job_titles"] = [r["title"] for r in rows]
+
+        # Desired job locations
+        rows = conn.execute("""
+            SELECT location FROM user_desired_job_locations WHERE username = ? ORDER BY position
+        """, (username,)).fetchall()
+        user["desired_job_locations"] = [r["location"] for r in rows]
+
+        # Online presence
+        rows = conn.execute("""
+            SELECT site, time_fetched, fetch_success, content FROM user_online_presence
+            WHERE username = ?
+        """, (username,)).fetchall()
+        user["online_presence"] = [
+            {"site": r["site"], "time_fetched": r["time_fetched"],
+             "fetch_success": bool(r["fetch_success"]), "content": r["content"]}
+            for r in rows
+        ]
+
+        # Combined source documents
+        rows = conn.execute("""
+            SELECT document_json FROM user_combined_source_documents
+            WHERE username = ? ORDER BY position
+        """, (username,)).fetchall()
+        user["combined_source_documents"] = [json.loads(r["document_json"]) for r in rows]
+
+        return user
+
+    def update_user_field(self, username: str, field: str, value: str):
+        """Update a scalar field in the users table."""
+        allowed_fields = {"name", "email", "source_document_summary",
+                          "online_presence_summary", "comprehensive_summary",
+                          "comprehensive_summary_generated_at", "cover_letter_output_dir"}
+        if field not in allowed_fields:
+            raise ValueError(f"Cannot update field: {field}")
+
+        with self.connection() as conn:
+            conn.execute(f"""
+                UPDATE users SET {field} = ? WHERE username = ?
+            """, (value, username))
+
+    # --- User AI credentials ---
+
+    def set_user_ai_credentials(self, username: str, method: str, api_key: str = None):
+        """Set AI credentials for a user."""
+        with self.connection() as conn:
+            conn.execute("""
+                INSERT OR REPLACE INTO user_ai_credentials (username, method, api_key)
+                VALUES (?, ?, ?)
+            """, (username, method, api_key))
+
+    # --- User list operations (credentials, websites, etc.) ---
+
+    def _set_user_list(self, username: str, table: str, column: str, items: list[str]):
+        """Generic method to set a list field."""
+        with self.connection() as conn:
+            conn.execute(f"DELETE FROM {table} WHERE username = ?", (username,))
+            for position, item in enumerate(items):
+                conn.execute(f"""
+                    INSERT INTO {table} (username, position, {column})
+                    VALUES (?, ?, ?)
+                """, (username, position, item))
+
+    def set_user_credentials(self, username: str, credentials: list[str]):
+        """Set credentials list."""
+        self._set_user_list(username, "user_credentials", "credential", credentials)
+
+    def set_user_websites(self, username: str, websites: list[str]):
+        """Set websites list."""
+        self._set_user_list(username, "user_websites", "url", websites)
+
+    def set_user_source_document_paths(self, username: str, paths: list[str]):
+        """Set source document paths list."""
+        self._set_user_list(username, "user_source_document_paths", "path", paths)
+
+    def set_user_desired_job_titles(self, username: str, titles: list[str]):
+        """Set desired job titles list."""
+        self._set_user_list(username, "user_desired_job_titles", "title", titles)
+
+    def set_user_desired_job_locations(self, username: str, locations: list[str]):
+        """Set desired job locations list."""
+        self._set_user_list(username, "user_desired_job_locations", "location", locations)
+
+    # --- User online presence ---
+
+    def add_user_online_presence(self, username: str, site: str, time_fetched: str,
+                                  fetch_success: bool, content: str):
+        """Add or update online presence entry."""
+        with self.connection() as conn:
+            conn.execute("""
+                INSERT OR REPLACE INTO user_online_presence
+                (username, site, time_fetched, fetch_success, content)
+                VALUES (?, ?, ?, ?, ?)
+            """, (username, site, time_fetched, 1 if fetch_success else 0, content))
+
+    def clear_user_online_presence(self, username: str):
+        """Clear all online presence data for a user."""
+        with self.connection() as conn:
+            conn.execute("""
+                DELETE FROM user_online_presence WHERE username = ?
+            """, (username,))
+
+    # --- User combined source documents ---
+
+    def set_user_combined_source_documents(self, username: str, documents: list[dict]):
+        """Set combined source documents (stored as JSON)."""
+        with self.connection() as conn:
+            conn.execute("""
+                DELETE FROM user_combined_source_documents WHERE username = ?
+            """, (username,))
+            for position, doc in enumerate(documents):
+                conn.execute("""
+                    INSERT INTO user_combined_source_documents (username, position, document_json)
+                    VALUES (?, ?, ?)
+                """, (username, position, json.dumps(doc)))

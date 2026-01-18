@@ -5,7 +5,7 @@ from enum import Enum
 from pathlib import Path
 from uuid import uuid4
 
-from .database import Database
+from .globals import DATABASE
 from .utils import datetime_iso
 
 
@@ -37,9 +37,7 @@ class Job:
         cover_letter_pdf_path: Path | str | None,
         questions: list[dict],
         query_ids: list[int],
-        db: Database
     ):
-        self._db = db
         self._username = username
         self._id = job_id
         self._company = company
@@ -67,7 +65,6 @@ class Job:
     @classmethod
     def create(
         cls,
-        db: Database,
         username: str,
         company: str,
         title: str,
@@ -96,10 +93,9 @@ class Job:
             cover_letter_pdf_path=None,
             questions=[],
             query_ids=query_ids or [],
-            db=db
         )
 
-        db.insert_job(
+        DATABASE.insert_job(
             username=job._username,
             job_id=job._id,
             company=job._company,
@@ -147,7 +143,7 @@ class Job:
     @company.setter
     def company(self, value: str):
         self._company = value
-        self._db.update_job_field(self._username, self._id, "company", value)
+        DATABASE.update_job_field(self._username, self._id, "company", value)
 
     @property
     def title(self) -> str:
@@ -156,7 +152,7 @@ class Job:
     @title.setter
     def title(self, value: str):
         self._title = value
-        self._db.update_job_field(self._username, self._id, "title", value)
+        DATABASE.update_job_field(self._username, self._id, "title", value)
 
     @property
     def location(self) -> str:
@@ -165,7 +161,7 @@ class Job:
     @location.setter
     def location(self, value: str):
         self._location = value
-        self._db.update_job_field(self._username, self._id, "location", value)
+        DATABASE.update_job_field(self._username, self._id, "location", value)
 
     @property
     def description(self) -> str:
@@ -174,7 +170,7 @@ class Job:
     @description.setter
     def description(self, value: str):
         self._description = value
-        self._db.update_job_field(self._username, self._id, "description", value)
+        DATABASE.update_job_field(self._username, self._id, "description", value)
 
     @property
     def full_description(self) -> str:
@@ -183,7 +179,7 @@ class Job:
     @full_description.setter
     def full_description(self, value: str):
         self._full_description = value
-        self._db.update_job_field(self._username, self._id, "full_description", value)
+        DATABASE.update_job_field(self._username, self._id, "full_description", value)
 
     @property
     def addressee(self) -> str | None:
@@ -192,7 +188,7 @@ class Job:
     @addressee.setter
     def addressee(self, value: str | None):
         self._addressee = value
-        self._db.update_job_field(self._username, self._id, "addressee", value)
+        DATABASE.update_job_field(self._username, self._id, "addressee", value)
 
     @property
     def status(self) -> JobStatus:
@@ -201,7 +197,7 @@ class Job:
     @status.setter
     def status(self, value: JobStatus):
         self._status = value
-        self._db.update_job_status(self._username, self._id, value.value)
+        DATABASE.update_job_status(self._username, self._id, value.value)
 
     # --- Cover letter properties ---
 
@@ -212,7 +208,7 @@ class Job:
     @cover_letter_topics.setter
     def cover_letter_topics(self, value: list[dict]):
         self._cover_letter_topics = value
-        self._db.update_job_cover_letter(self._username, self._id, topics=value)
+        DATABASE.update_job_cover_letter(self._username, self._id, topics=value)
 
     @property
     def cover_letter_body(self) -> str:
@@ -221,7 +217,7 @@ class Job:
     @cover_letter_body.setter
     def cover_letter_body(self, value: str):
         self._cover_letter_body = value
-        self._db.update_job_cover_letter(self._username, self._id, body=value)
+        DATABASE.update_job_cover_letter(self._username, self._id, body=value)
 
     @property
     def cover_letter_pdf_path(self) -> Path | None:
@@ -241,7 +237,7 @@ class Job:
 
         self._cover_letter_pdf_path = new_path
         path_str = str(new_path) if new_path else None
-        self._db.update_job_cover_letter(self._username, self._id, pdf_path=path_str)
+        DATABASE.update_job_cover_letter(self._username, self._id, pdf_path=path_str)
 
     # --- Questions property ---
 
@@ -254,13 +250,13 @@ class Job:
         """Replace all questions (used for clearing)."""
         self._questions = value
         if not value:
-            self._db.clear_job_questions(self._username, self._id)
+            DATABASE.clear_job_questions(self._username, self._id)
         # Note: For adding questions, use the append pattern which is handled
         # by the JobsDB wrapper or direct database calls
 
     def add_question(self, question: str):
         """Add a new question."""
-        q_id = self._db.add_job_question(self._username, self._id, question)
+        q_id = DATABASE.add_job_question(self._username, self._id, question)
         self._questions.append({"id": q_id, "question": question, "answer": ""})
 
     def update_question_answer(self, question_text: str, answer: str):
@@ -269,7 +265,7 @@ class Job:
             if q["question"] == question_text:
                 q["answer"] = answer
                 if "id" in q:
-                    self._db.update_job_question_answer(self._username, self._id, q["id"], answer)
+                    DATABASE.update_job_question_answer(self._username, self._id, q["id"], answer)
                 break
 
     # --- Other methods ---
@@ -303,21 +299,15 @@ class Job:
 class JobsDB:
     """Database-backed job collection with same interface as Jobs."""
 
-    def __init__(self, db_path: Path, username: str):
-        self._db = Database(db_path)
+    def __init__(self, username: str, temp_dir: Path):
         self._username = username
-        self._temp_file = db_path.parent / "search_temp.jsonl"
+        self._temp_file = temp_dir / "search_temp.jsonl"
         self._jobs_cache: dict[str, Job] = {}
         self._load_all()
 
-    @property
-    def database(self) -> Database:
-        """Expose database for shared use by other handlers."""
-        return self._db
-
     def _load_all(self):
         """Load all jobs into cache."""
-        job_dicts = self._db.get_all_jobs(self._username)
+        job_dicts = DATABASE.get_all_jobs(self._username)
         for job_dict in job_dicts:
             job = self._dict_to_job(job_dict)
             self._jobs_cache[job.id] = job
@@ -342,7 +332,6 @@ class JobsDB:
             cover_letter_pdf_path=data.get("cover_letter_pdf_path"),
             questions=data.get("questions", []),
             query_ids=data.get("query_ids", []),
-            db=self._db
         )
 
     def __iter__(self):
@@ -360,30 +349,29 @@ class JobsDB:
 
     @property
     def number_applied(self) -> int:
-        return self._db.count_jobs_by_status(self._username, "applied")
+        return DATABASE.count_jobs_by_status(self._username, "applied")
 
     @property
     def number_in_progress(self) -> int:
-        return self._db.count_jobs_by_status(self._username, "in_progress")
+        return DATABASE.count_jobs_by_status(self._username, "in_progress")
 
     @property
     def number_discarded(self) -> int:
-        return self._db.count_jobs_by_status(self._username, "discarded")
+        return DATABASE.count_jobs_by_status(self._username, "discarded")
 
     @property
     def number_pending(self) -> int:
-        return self._db.count_jobs_by_status(self._username, "pending")
+        return DATABASE.count_jobs_by_status(self._username, "pending")
 
     def has_link(self, link: str) -> bool:
         """Check if a job with this link already exists."""
-        return self._db.job_has_link(self._username, link)
+        return DATABASE.job_has_link(self._username, link)
 
     def add(self, company: str, title: str, link: str, location: str = "",
             description: str = "", full_description: str = "",
             addressee: str | None = None, query_ids: list[int] = None) -> Job:
         """Add a new job and return it."""
         job = Job.create(
-            db=self._db,
             username=self._username,
             company=company,
             title=title,

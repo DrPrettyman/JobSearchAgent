@@ -701,7 +701,6 @@ class UserOptions:
             message="Your name:",
             default=self.user.name,
         ).execute()
-        self.user.save()
 
     def configure_email(self):
         """Configure user's email."""
@@ -716,7 +715,6 @@ class UserOptions:
             message="Your email:",
             default=self.user.email,
         ).execute()
-        self.user.save()
 
     def configure_credentials(self):
         """Configure user's credentials/titles."""
@@ -737,7 +735,6 @@ class UserOptions:
             choices=choices,
         ).execute()
         self.user.credentials = selected
-        self.user.save()
 
     def configure_websites(self):
         """Configure personal websites/portfolios."""
@@ -774,7 +771,6 @@ class UserOptions:
                 if to_remove:
                     self.user.remove_website(to_remove)
 
-        self.user.save()
 
         websites_after = set(self.user.websites)
 
@@ -852,7 +848,6 @@ class UserOptions:
             elif action == "regenerate_suggestions":
                 self._job_title_suggestions = []
                 self.create_new_job_title_and_location_suggestions()
-        self.user.save()
 
     def configure_job_locations(self):
         """Configure desired job locations."""
@@ -925,7 +920,6 @@ class UserOptions:
             elif action == "regenerate_suggestions":
                 self._job_location_suggestions = []
                 self.create_new_job_title_and_location_suggestions()
-        self.user.save()
 
     def configure_source_documents(self):
         """Configure source document paths."""
@@ -993,17 +987,14 @@ class UserOptions:
                 self.user.add_source_document_path(selected_path)
                 print(f"Added: {selected_path}")
 
-        self.user.save()
         if self.user.source_document_paths:
             self.user.combined_source_documents = combine_documents(self.user.source_document_paths)
-            self.user.save()
-
+    
         if self.user.combined_source_documents:
             print("Generating summary of source documents...")
             summary = summarize_source_documents(combined_documents_as_string(self.user.combined_source_documents))
             if summary:
                 self.user.source_document_summary = summary
-                self.user.save()
                 print("Summary generated.")
             else:
                 print("Could not generate summary.")
@@ -1032,12 +1023,10 @@ class UserOptions:
                 validate=PathValidator(is_dir=True, message="Must be a directory")
             ).execute()
             self.user.cover_letter_output_dir = str(Path(new_path).resolve())
-            self.user.save()
             new_dir = self.user.cover_letter_output_dir
             print(f"\n{Colors.GREEN}Set output directory to: {new_dir}{Colors.RESET}")
         elif action == "reset":
             self.user.cover_letter_output_dir = ""
-            self.user.save()
             new_dir = self.user.cover_letter_output_dir
             print(f"\n{Colors.GREEN}Reset to default: {new_dir}{Colors.RESET}")
 
@@ -1114,7 +1103,6 @@ class UserOptions:
                 print(f"{Colors.YELLOW}No API key provided, keeping previous setting.{Colors.RESET}")
                 return
 
-        self.user.save()
         print(f"AI credentials updated.")
 
     def refresh_source_documents(self):
@@ -1125,14 +1113,12 @@ class UserOptions:
 
         print("Re-reading source documents...")
         self.user.combined_source_documents = combine_documents(self.user.source_document_paths)
-        self.user.save()
 
         if self.user.combined_source_documents:
             print("Generating summary...")
             summary = summarize_source_documents(combined_documents_as_string(self.user.combined_source_documents))
             if summary:
                 self.user.source_document_summary = summary
-                self.user.save()
                 print("Summary updated.")
             else:
                 print("Could not generate summary.")
@@ -1167,7 +1153,6 @@ class UserOptions:
             else:
                 print("Could not generate summary.")
 
-        self.user.save()
         print(f"Fetched {len(results)} profiles.")
 
     def generate_job_title_and_location_suggestions(self):
@@ -1304,7 +1289,6 @@ The summary should be thorough enough to write tailored cover letters without ne
 
         self.user.comprehensive_summary = response
         self.user.comprehensive_summary_generated_at = datetime_iso()
-        self.user.save()
         print("Comprehensive summary generated and saved.")
 
         preview = self.user.comprehensive_summary[:500]
