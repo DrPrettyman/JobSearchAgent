@@ -159,16 +159,16 @@ class LetterWriter:
     def contact_info(self) -> str:
         email = r"\href{mailto:email}{email}".replace("email", self.user_email)
         contact_items = [email]
-
-        if self.user_website:
-            website = r"\href{<FULL>}{<STRIPPED>}".replace("<FULL>", self.user_website).replace("<STRIPPED>", re.sub(r"https?://", "", self.user_website))
-            contact_items.append(website)
-
+        
         if self.user_linkedin_url:
             # Extract display text like "in/username" from full URL
             display = re.sub(r"https?://(www\.)?linkedin\.com/", "", self.user_linkedin_url).rstrip("/")
             linkedin = r"\href{" + self.user_linkedin_url + r"}{" + display + r"}"
             contact_items.append(linkedin)
+
+        if self.user_website:
+            website = r"\href{<FULL>}{<STRIPPED>}".replace("<FULL>", self.user_website).replace("<STRIPPED>", re.sub(r"https?://", "", self.user_website))
+            contact_items.append(website)
 
         return r" \textbar{} ".join(contact_items)
             
@@ -207,7 +207,7 @@ class LetterWriter:
         latex_template = latex_template.replace('<INSERT_SIGNOFF>', self.sign_off)
         latex_template = latex_template.replace('<INSERT_SIGNATURE_NAME>', escape_latex(self.user_name))
 
-        return latex_template      
+        return latex_template
 
     def save_pdf(
         self,
