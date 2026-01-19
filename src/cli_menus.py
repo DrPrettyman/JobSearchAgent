@@ -153,8 +153,6 @@ class JobOptions:
 
     def generate_cover_letter_for_job(self):
         """Generate cover letter content for a job."""
-        print(f"\n{Colors.CYAN}Generating cover letter...{Colors.RESET}")
-
         service = CoverLetterService(
             job=self.job,
             user=self.user,
