@@ -2,7 +2,7 @@
 
 import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Callable
+from urllib.parse import urlparse
 
 from utils import (
     counter,
@@ -11,11 +11,23 @@ from utils import (
     combined_documents_as_string,
     extract_json_from_response,
 )
-from data_handlers import User, Query
+from data_handlers import User, Query, Job, JobStatus
 from services.progress import ProgressCallbackType, print_progress
 
 
 REQUIRED_JOB_FIELDS = ("company", "title", "link")
+
+JOB_BOARD_DOMAINS = (
+    "linkedin.com", "indeed.com", "glassdoor.com", "ziprecruiter.com",
+    "monster.com", "careerbuilder.com", "dice.com", "simplyhired.com",
+    "lever.co", "greenhouse.io", "workday.com", "jobs.lever.co",
+)
+
+
+def is_job_board_url(url: str) -> bool:
+    """Check if URL is from a job board site."""
+    domain = urlparse(url).netloc.lower()
+    return any(jb in domain for jb in JOB_BOARD_DOMAINS)
 
 
 def search_query(
@@ -101,6 +113,75 @@ Page content:
         return ""
 
     return response
+
+
+def validate_job_on_careers_page(
+    company: str,
+    title: str,
+    on_progress: ProgressCallbackType = print_progress
+) -> tuple[bool, str | None, str | None]:
+    """Validate job exists on company's careers page.
+
+    Searches for the company's careers page and checks if the job title is listed.
+
+    Returns:
+        (is_valid, direct_link, full_description)
+        - (True, link, desc) - job found with direct link and description
+        - (True, None, None) - job likely exists but couldn't get better link
+        - (False, None, None) - job not found on careers page (likely stale)
+    """
+    prompt = f"""Find the careers/jobs page for "{company}" and check if they have a "{title}" position open.
+
+Steps:
+1. Search for "{company} careers" or "{company} jobs"
+2. Find their official careers/jobs page
+3. Look for a "{title}" or similar position
+
+Return ONLY a JSON object with this structure, no other text:
+{{
+  "found": true/false,
+  "direct_link": "https://full-url-to-specific-job-posting" or null,
+  "description": "Full job description text" or null,
+  "reason": "Brief explanation of what you found"
+}}
+
+If you find the job:
+- Set "found": true
+- Include the direct link to the specific job posting if possible
+- Include the job description if available
+
+If you cannot find the job on their careers page:
+- Set "found": false
+- Explain why in "reason" (e.g., "Job not listed on careers page", "Company has no open positions")
+"""
+
+    success, response = run_claude(
+        prompt,
+        timeout=180,
+        tools=["WebSearch", "WebFetch"]
+    )
+
+    if not success:
+        on_progress(f"    Validation failed for {title} at {company}: {response}", "error")
+        # On failure, assume job is valid to avoid false negatives
+        return (True, None, None)
+
+    try:
+        json_str = extract_json_from_response(response)
+        result = json.loads(json_str)
+
+        if not isinstance(result, dict):
+            return (True, None, None)
+
+        is_found = result.get("found", False)
+        direct_link = result.get("direct_link")
+        description = result.get("description")
+
+        return (is_found, direct_link, description)
+
+    except (json.JSONDecodeError, KeyError):
+        # On parse failure, assume job is valid
+        return (True, None, None)
 
 
 def filter_unsuitable_jobs(jobs_summary: str, user_background: str) -> list[int]:
@@ -194,6 +275,42 @@ class JobSearcher:
         bad_indices = sorted(set(all_indices) - set(all_good_indices))
         return bad_indices
 
+    def _validate_careers_pages(self, max_workers: int = 5):
+        """Validate job-board jobs against company careers pages.
+
+        For jobs with job-board URLs (LinkedIn, Indeed, etc.):
+        - If found on careers page: updates job.link to direct URL, sets full_description if available
+        - If not found: sets job.status to DISCARDED (likely stale posting)
+        """
+        temp_jobs = self.user.job_handler.get_temp_jobs()
+        
+        # Filter to only job-board URLs
+        jobs_to_validate = [j for j in temp_jobs if is_job_board_url(j.link)]
+
+        if not jobs_to_validate:
+            return
+
+        self.on_progress(f"\nValidating {len(jobs_to_validate)} job-board listings against careers pages...", "info")
+
+        def validate_job(job) -> tuple[Job, tuple[bool, str | None, str | None]]:
+            return job, validate_job_on_careers_page(job.company, job.title, self.on_progress)
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {executor.submit(validate_job, job): job for job in jobs_to_validate}
+            for i, future in enumerate(as_completed(futures), 1):
+                job, (is_valid, direct_link, description) = future.result()
+                if not is_valid:
+                    job.status = JobStatus.DISCARDED
+                    self.on_progress(f"  [{i}/{len(jobs_to_validate)}] {job.title} at {job.company} - NOT FOUND (discarded)", "warning")
+                else:
+                    if direct_link:
+                        job.link = direct_link
+                        self.on_progress(f"  [{i}/{len(jobs_to_validate)}] {job.title} at {job.company} - VERIFIED (better link found)", "success")
+                    else:
+                        self.on_progress(f"  [{i}/{len(jobs_to_validate)}] {job.title} at {job.company} - VERIFIED", "success")
+                    if description:
+                        job.full_description = description
+
     def _search_for_jobs(self, queries: list[Query]):
         """Search for jobs using all queries, creating TEMP jobs for crash recovery."""
         self.on_progress(f"Searching with {len(queries)} queries...", "info")
@@ -224,11 +341,15 @@ class JobSearcher:
         self.on_progress(f"\nCreated {jobs_created} temp jobs", "info")
 
     def _merge_temp_jobs(self):
+        """Merge duplicate TEMP jobs (same company and title).
+
+        When duplicates are found, merges query_ids into one job and deletes the other.
+        """
         temp_jobs = self.user.job_handler.get_temp_jobs()
         if not temp_jobs:
             return
 
-        new_list = []
+        new_list: list[Job] = []
         while temp_jobs:
             j = temp_jobs.pop()
             for k in new_list:
@@ -238,44 +359,49 @@ class JobSearcher:
                     break
             else:
                 new_list.append(j)
+                
+    def _fetch_full_descriptions(self, max_workers: int = 5):
+        """Fetch full job descriptions for TEMP jobs that don't have one.
 
-    def _post_process_temp_jobs(self, fetch_descriptions: bool = True, max_workers: int = 5) -> list[str]:
-        """Process TEMP jobs: fetch descriptions, filter unsuitable. Returns IDs of good jobs."""
-        self._merge_temp_jobs()
-
+        Scrapes job posting URLs concurrently and extracts description text.
+        """
         temp_jobs = self.user.job_handler.get_temp_jobs()
+        jobs_to_process = [j for j in temp_jobs if not j.full_description]
+
+        if not jobs_to_process:
+            return
+
+        self.on_progress(f"\nFetching full descriptions for {len(jobs_to_process)} jobs ({max_workers} concurrent)...", "info")
+
+        def fetch_for_job(job: Job) -> tuple[Job, str]:
+            """Fetch description for a single job, return (job, description)."""
+            return job, fetch_full_description(job.link, on_progress=self.on_progress)
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {executor.submit(fetch_for_job, job): job for job in jobs_to_process}
+
+            for i, future in enumerate(as_completed(futures), 1):
+                job, full_desc = future.result()
+
+                if full_desc:
+                    job.full_description = full_desc
+                    self.on_progress(f"  [{i}/{len(jobs_to_process)}] {job.title} at {job.company}... Got {len(full_desc)} chars", "success")
+                else:
+                    self.on_progress(f"  [{i}/{len(jobs_to_process)}] {job.title} at {job.company}... No description extracted", "warning")
+
+    def _filter_unsuitable_jobs(self, chunk_size: int = 20):
+        """Filter out TEMP jobs that don't match user's background.
+
+        Uses Claude to compare jobs against user's profile. Jobs that don't match
+        are set to DISCARDED status.
+        """
+        temp_jobs = self.user.job_handler.get_temp_jobs()
+
         if not temp_jobs:
-            self.on_progress("\nNo temp jobs to process.", "info")
-            return []
+            return
 
-        self.on_progress(f"\nProcessing {len(temp_jobs)} temp jobs...", "info")
+        self.on_progress(f"\nFiltering {len(temp_jobs)} jobs for suitability...", "info")
 
-        # Fetch full descriptions concurrently
-        if fetch_descriptions:
-            self.on_progress(f"\nFetching full descriptions ({max_workers} concurrent)...", "info")
-
-            def fetch_for_job(job):
-                """Fetch description for a single job, return (job, description)."""
-                if job.full_description:
-                    return job, None  # Already has description
-                return job, fetch_full_description(job.link, on_progress=self.on_progress)
-
-            with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                futures = {executor.submit(fetch_for_job, job): job for job in temp_jobs}
-
-                for i, future in enumerate(as_completed(futures), 1):
-                    job, full_desc = future.result()
-
-                    if full_desc is None:
-                        self.on_progress(f"  [{i}/{len(temp_jobs)}] {job.title} at {job.company}... Already has description", "info")
-                    elif full_desc:
-                        job.full_description = full_desc
-                        self.on_progress(f"  [{i}/{len(temp_jobs)}] {job.title} at {job.company}... Got {len(full_desc)} chars", "success")
-                    else:
-                        self.on_progress(f"  [{i}/{len(temp_jobs)}] {job.title} at {job.company}... No description extracted", "warning")
-
-        # Filter unsuitable jobs
-        self.on_progress("\nFiltering unsuitable jobs...", "info")
         # Convert to dict format for filter function
         jobs_as_dicts = []
         for i, job in enumerate(temp_jobs):
@@ -288,16 +414,53 @@ class JobSearcher:
                 "job_id": job.id
             })
 
-        bad_indices = self._filter_unsuitable(jobs_as_dicts, chunk_size=20)
+        bad_indices = self._filter_unsuitable(jobs_as_dicts, chunk_size=chunk_size)
 
-        good_job_ids = [j["job_id"] for j in jobs_as_dicts if j["index"] not in bad_indices]
-        bad_job_ids = [j["job_id"] for j in jobs_as_dicts if j["index"] in bad_indices]
+        bad_jobs = [temp_jobs[j["index"]] for j in jobs_as_dicts if j["index"] in bad_indices]
 
-        # Delete unsuitable jobs
-        for job_id in bad_job_ids:
-            self.user.job_handler.delete_job(job_id)
+        for job in bad_jobs:
+            job.status = JobStatus.DISCARDED
+            self.on_progress(f"  {job.title} at {job.company} - UNSUITABLE (discarded)", "warning")
 
-        return good_job_ids
+    def process_temp_jobs(self, fetch_descriptions: bool = True, max_workers: int = 5):
+        """Process TEMP jobs through the full validation pipeline.
+
+        Steps:
+        1. Merge duplicates (same company/title)
+        2. Validate job-board listings against company careers pages
+        3. Fetch full descriptions (if fetch_descriptions=True)
+        4. Filter out unsuitable jobs based on user's background
+        5. Promote remaining TEMP jobs to PENDING status
+        """
+        self._merge_temp_jobs()
+
+        temp_jobs = self.user.job_handler.get_temp_jobs()
+        if not temp_jobs:
+            self.on_progress("\nNo temp jobs to process.", "info")
+            return
+
+        self.on_progress(f"\nProcessing {len(temp_jobs)} temp jobs...", "info")
+
+        # Validate job-board listings against company careers pages
+        self._validate_careers_pages(max_workers=max_workers)
+
+        # Fetch full descriptions concurrently (skip if already fetched during validation)
+        if fetch_descriptions:
+            self._fetch_full_descriptions(max_workers=max_workers)
+
+        # Filter out unsuitable jobs
+        self._filter_unsuitable_jobs()
+        
+        # Promote remaining TEMP jobs
+        promoted_job_ids = self.user.job_handler.promote_temp_jobs()
+        
+        # Write query results for the promoted jobs
+        promoted_jobs = [self.user.job_handler.get(job_id) for job_id in promoted_job_ids]
+        self.user.query_handler.write_results(
+            counter([j.query_ids for j in promoted_jobs if j])
+        )
+        
+        self.on_progress(f"  {len(promoted_job_ids)} suitable jobs remaining", "info")
 
     def search(self, query_ids: list[int] = None, fetch_descriptions: bool = True):
         """Run the full job search pipeline.
@@ -322,20 +485,5 @@ class JobSearcher:
             self._search_for_jobs(queries)
 
         # Process all TEMP jobs (fetch descriptions, filter unsuitable)
-        good_job_ids = self._post_process_temp_jobs(fetch_descriptions=fetch_descriptions)
-        self.on_progress(f"  {len(good_job_ids)} suitable jobs remaining", "info")
-
-        if not good_job_ids:
-            self.on_progress("\nNo suitable jobs found.", "warning")
-            return
-
-        # Promote good TEMP jobs to PENDING
-        self.user.job_handler.promote_temp_jobs(good_job_ids)
-
-        # Write query results for the promoted jobs
-        promoted_jobs = [self.user.job_handler.get(job_id) for job_id in good_job_ids]
-        self.user.query_handler.write_results(
-            counter([j.query_ids for j in promoted_jobs if j])
-        )
-
-        self.on_progress(f"\nDone! Promoted {len(good_job_ids)} jobs to pending. Total jobs: {len(self.user.job_handler)}", "success")
+        self.process_temp_jobs(fetch_descriptions=fetch_descriptions)
+        
