@@ -28,7 +28,8 @@ class CoverLetterService:
         self,
         job: Job,
         user: User,
-        force_regenerate_topics: bool = False
+        force_regenerate_topics: bool = False,
+        writing_instructions: list[str] | None = None
     ) -> CoverLetterResult:
         """Generate a complete cover letter for a job.
 
@@ -42,6 +43,7 @@ class CoverLetterService:
             job: The job to generate a cover letter for
             user: The user whose background to use
             force_regenerate_topics: If True, regenerate topics even if present
+            writing_instructions: Custom instructions for writing style (uses defaults if None)
 
         Returns:
             CoverLetterResult with success status and details
@@ -77,7 +79,12 @@ class CoverLetterService:
             LetterWriter,
             generate_cover_letter_topics,
             generate_cover_letter_body,
+            DEFAULT_WRITING_INSTRUCTIONS,
         )
+
+        # Use user's custom instructions, or default if none provided
+        if writing_instructions is None:
+            writing_instructions = user.cover_letter_writing_instructions or DEFAULT_WRITING_INSTRUCTIONS
 
         # Step 1: Generate cover letter topics
         topics_generated = False
@@ -103,7 +110,8 @@ class CoverLetterService:
             company=job.company,
             job_description=job_description,
             user_background=user_background,
-            cover_letter_topics=job.cover_letter_topics
+            cover_letter_topics=job.cover_letter_topics,
+            writing_instructions=writing_instructions
         )
 
         if not body:
@@ -193,13 +201,15 @@ class CoverLetterService:
     def regenerate_body_only(
         self,
         job: Job,
-        user: User
+        user: User,
+        writing_instructions: list[str] | None = None
     ) -> CoverLetterResult:
         """Regenerate just the cover letter body, keeping existing topics.
 
         Args:
             job: The job (must have cover_letter_topics set)
             user: The user whose background to use
+            writing_instructions: Custom instructions for writing style (uses defaults if None)
 
         Returns:
             CoverLetterResult with success status
@@ -229,14 +239,19 @@ class CoverLetterService:
 
         self.on_progress("Regenerating cover letter...", "info")
         # Lazy import to avoid circular dependency
-        from cover_letter_writer import generate_cover_letter_body
+        from cover_letter_writer import generate_cover_letter_body, DEFAULT_WRITING_INSTRUCTIONS
+
+        # Use user's custom instructions, or default if none provided
+        if writing_instructions is None:
+            writing_instructions = user.cover_letter_writing_instructions or DEFAULT_WRITING_INSTRUCTIONS
 
         body = generate_cover_letter_body(
             job_title=job.title,
             company=job.company,
             job_description=job_description,
             user_background=user_background,
-            cover_letter_topics=job.cover_letter_topics
+            cover_letter_topics=job.cover_letter_topics,
+            writing_instructions=writing_instructions
         )
 
         if not body:

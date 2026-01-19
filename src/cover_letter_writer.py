@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from utils import run_claude
-from prompts import AI_WRITING_GUIDELINES
+from prompts import AI_WRITING_GUIDELINES, CRITICAL_WRITING_RULES, DEFAULT_WRITING_INSTRUCTIONS
 from services.progress import ProgressCallbackType, print_progress
 
 LATEX_TEMPLATE = r"""\documentclass[11pt]{article}
@@ -68,7 +68,6 @@ Yours <INSERT_SIGNOFF>,
 
 \end{document}
 """
-
 
 def escape_latex(text: str) -> str:
     """Escape special LaTeX characters in text."""
@@ -321,7 +320,8 @@ def generate_cover_letter_body(
     company: str,
     job_description: str,
     user_background: str,
-    cover_letter_topics: list[dict]
+    cover_letter_topics: list[dict],
+    writing_instructions: list[str] = DEFAULT_WRITING_INSTRUCTIONS
 ) -> str:
     """Generate cover letter body text using Claude.
 
@@ -338,40 +338,45 @@ def generate_cover_letter_body(
     if not job_description or not user_background or not cover_letter_topics:
         return ""
 
-    # Format topics for the prompt
+    # Format topics to emphasize the CONNECTION, not just list topic + experience
     topics_formatted = "\n".join(
-        f"- Topic: {t['topic']}\n  Relevant experience: {t['relevant_experience']}"
-        for t in cover_letter_topics
+        f"{i+1}. Connection: {t['topic']} ← {t['relevant_experience']}"
+        for i, t in enumerate(cover_letter_topics)
     )
 
-    prompt = f"""Write a cover letter body for this job application.
+    prompt = f"""You will write a cover letter body. Read ALL instructions before writing.
 
-CANDIDATE BACKGROUND:
-{user_background}
+CRITICAL RULES (you must check each one before finalizing):
+{chr(10).join(f"{i+1}. {rule}" for i, rule in enumerate(CRITICAL_WRITING_RULES))}
 
-JOB DETAILS:
-Company: {company}
-Position: {job_title}
-Description:
-{job_description}
+AVOID THESE AI WRITING PATTERNS:
+{chr(10).join(f"{i+1}. {rule}" for i, rule in enumerate(AI_WRITING_GUIDELINES))}
 
-KEY TOPICS TO ADDRESS (pre-analyzed, use these to structure the letter):
-{topics_formatted}
+---
+
+TASK: Write a cover letter for {job_title} at {company}.
 
 INSTRUCTIONS:
-- Write ONLY the body paragraphs (3-4 paragraphs)
-- Do NOT include salutation (Dear...) or closing (Yours sincerely...)
-- Use the pre-analyzed topics above to guide what you write about
-- Don't try to hit every topic; focus on 3-4 strong connections
-- Be specific: include metrics and concrete details from the relevant experience
-- Keep it concise (250-350 words)
-- Use contractions (I'm, I've, wasn't) for a natural tone
-- Vary sentence and paragraph length deliberately
-- Write a letter, not a post. This should read like personal correspondence, not LinkedIn content.
+{chr(10).join(f"- {instruction}" for instruction in writing_instructions)}
 
-{AI_WRITING_GUIDELINES}
+CANDIDATE BACKGROUND (draw specific details from this):
+{user_background}
 
-Write the cover letter body now:"""
+JOB DESCRIPTION (for context only - do NOT describe this back to the reader):
+{job_description}
+
+CONNECTIONS TO MAKE (your experience → their need):
+{topics_formatted}
+
+---
+
+PROCESS:
+1. Write a draft of the cover letter body (3-4 paragraphs, 250-350 words)
+2. Review your draft against each of the 5 CRITICAL RULES above
+3. If any rule is violated, revise that sentence
+4. Output ONLY the final revised version
+
+Begin:"""
 
     success, response = run_claude(prompt, timeout=120)
 

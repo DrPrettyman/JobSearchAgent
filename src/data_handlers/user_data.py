@@ -31,6 +31,7 @@ class User:
         self._combined_source_documents = user_info.get("combined_source_documents", [])
         self._cover_letter_output_dir = user_info.get("cover_letter_output_dir", "")
         self._ai_credentials = user_info.get("ai_credentials", {"method": "claude_local"})
+        self._cover_letter_writing_instructions = user_info.get("cover_letter_writing_instructions", [])
 
     def is_new_user(self) -> bool:
         """Check if user was just created (no existing data)."""
@@ -143,6 +144,21 @@ class User:
     def credentials(self, value: list[str]):
         self._credentials = value
         DATABASE.set_user_credentials(self._username, value)
+
+    # --- Cover letter writing instructions ---
+
+    @property
+    def cover_letter_writing_instructions(self) -> list[str]:
+        """Custom instructions for cover letter generation.
+
+        If empty, defaults will be used by the cover letter service.
+        """
+        return self._cover_letter_writing_instructions
+
+    @cover_letter_writing_instructions.setter
+    def cover_letter_writing_instructions(self, value: list[str]):
+        self._cover_letter_writing_instructions = value
+        DATABASE.set_user_cover_letter_writing_instructions(self._username, value)
 
     # --- Websites list ---
 
