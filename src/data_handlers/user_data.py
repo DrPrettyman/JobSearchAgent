@@ -5,7 +5,6 @@ from .queries import QueryHandler
 
 
 DEFAULT_WRITING_INSTRUCTIONS = [
-    "Write ONLY the body paragraphs (3-4 paragraphs). No salutation or closing.",
     "Focus on 2-3 strong connections, not every topic.",
     "Be specific: include metrics and concrete details.",
     "Keep it concise (250-350 words).",
@@ -171,6 +170,9 @@ class User:
     def cover_letter_writing_instructions(self, value: list[str]):
         self._cover_letter_writing_instructions = value
         DATABASE.set_user_cover_letter_writing_instructions(self._username, value)
+        
+    def reset_cover_letter_writing_instructions(self):
+        self.cover_letter_writing_instructions = DEFAULT_WRITING_INSTRUCTIONS
 
     # --- Websites list ---
 

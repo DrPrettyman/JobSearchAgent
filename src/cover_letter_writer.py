@@ -337,6 +337,8 @@ def generate_cover_letter_body(
     """
     if not job_description or not user_background or not cover_letter_topics:
         return ""
+    
+    writing_instructions = ["Write ONLY the body paragraphs (3-4 paragraphs). No salutation or closing."] + writing_instructions
 
     # Format topics to emphasize the CONNECTION, not just list topic + experience
     topics_formatted = "\n".join(
@@ -361,6 +363,7 @@ INSTRUCTIONS:
 
 CANDIDATE BACKGROUND (draw specific details from this):
 {user_background}
+¡Be true to the candidate background: do not invent any experience or skills!
 
 JOB DESCRIPTION (for context only - do NOT describe this back to the reader):
 {job_description}
@@ -371,10 +374,11 @@ CONNECTIONS TO MAKE (your experience → their need):
 ---
 
 PROCESS:
-1. Write a draft of the cover letter body (3-4 paragraphs, 250-350 words)
-2. Review your draft against each of the 5 CRITICAL RULES above
-3. If any rule is violated, revise that sentence
-4. Output ONLY the final revised version
+1. Follow the rules and instructions.
+2. Write a draft of the cover letter body (3-4 paragraphs, 250-350 words). No salutations or closings. Only the body text.
+3. Review your draft against each of the 5 CRITICAL RULES above.
+4. If any rule is violated, revise that sentence.
+5. Output ONLY the final revised version.
 
 Begin:"""
 

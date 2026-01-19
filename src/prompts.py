@@ -1,34 +1,19 @@
 """Shared prompt content for AI interactions."""
 
-DEFAULT_WRITING_INSTRUCTIONS = [
-    "Write ONLY the body paragraphs (3-4 paragraphs). No salutation or closing.",
-    "Focus on 2-3 strong connections, not every topic.",
-    "Be specific: include metrics and concrete details.",
-    "Keep it concise (250-350 words).",
-    "Use contractions (I'm, I've, wasn't).",
-    "Vary sentence and paragraph length. Not every paragraph should start with 'I'.",
-    "Write to one person, not to an audience.",
-    "Lead with YOUR experience, not descriptions of the job or company.",
-]
-
 # These are the rules most often violated - placed prominently and checked explicitly
 CRITICAL_WRITING_RULES = [
     """NO DRAMATIC COLONS: Never use "X: Y, Z, and W" to list things after a colon for effect.
 BAD: "Wave's problem space: millions of users, sparse data, and complex tradeoffs"
 GOOD: "Wave works with millions of users and sparse data, which requires..." """,
-
     """NO RULE OF THREE: Never list exactly three parallel items for rhetorical effect.
 BAD: "expertise, passion, and commitment" / "scale, speed, and reliability"
 GOOD: Use two items, four items, or just one. Two is usually enough.""",
-
     """DON'T DESCRIBE THE JOB BACK: The reader wrote the job description. Don't list what the job requires or what the company does—show how your experience connects.
 BAD: "The role requires ML experience and working with large datasets"
 BAD: "Wave operates in emerging markets with millions of users"
 GOOD: "At Blink I built an ML pipeline processing 50M daily records, which taught me..." """,
-
     "NO FORMULAIC STRUCTURE: Don't start every paragraph with 'I'. Don't make paragraphs the same length. A two-sentence paragraph followed by a longer one feels human.",
-
-    """NO EMPTY CONNECTORS: Cut "which is why", "this is what drew me to", "that's exactly what", "this is where". State the connection directly or let the reader infer it.""",
+    """NO EMPTY CONNECTORS: Cut "which is why", "this is what drew me to", "that's exactly what", "this is where". State the connection directly or let the reader infer it."""
 ]
 
 AI_WRITING_GUIDELINES = [

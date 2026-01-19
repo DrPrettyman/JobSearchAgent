@@ -125,7 +125,6 @@ from utils import (
 from search_jobs import JobSearcher
 from services import CoverLetterService, UserProfileService
 from question_answerer import generate_answers_batch
-from prompts import DEFAULT_WRITING_INSTRUCTIONS
 
 # Ordered by precedence (most prestigious first)
 CREDENTIAL_OPTIONS = [
@@ -321,29 +320,25 @@ class JobOptions:
         while True:
             clear_screen()
             print_header(f"Writing Style: {self.job.title}")
+            
+            general_instructions = self.user.cover_letter_writing_instructions
+            print(f"  {Colors.DIM}General writing instructions:{Colors.RESET}\n")
+            for i, instruction in enumerate(general_instructions, 1):
+                print(f"  {Colors.GREEN}{i}.{Colors.RESET} {instruction}")
+            print()
 
-            instructions = self.job.writing_instructions
-            if instructions:
-                print(f"  {Colors.DIM}Custom instructions for this job:{Colors.RESET}\n")
-                for i, instruction in enumerate(instructions, 1):
+            job_instructions = self.job.writing_instructions
+            print(f"  {Colors.DIM}Specific instructions for this job:{Colors.RESET}\n")
+            if job_instructions:
+                for i, instruction in enumerate(job_instructions, 1):
                     print(f"  {Colors.GREEN}{i}.{Colors.RESET} {instruction}")
                 print()
             else:
-                print(f"  {Colors.DIM}No custom instructions. Using user/default settings.{Colors.RESET}\n")
-                # Show what will be used
-                user_instructions = self.user.cover_letter_writing_instructions
-                if user_instructions:
-                    print(f"  {Colors.DIM}(User-level instructions will be used){Colors.RESET}\n")
-                else:
-                    print(f"  {Colors.DIM}(Default instructions will be used){Colors.RESET}\n")
+                print(f"  {Colors.DIM}None.{Colors.RESET}\n")
 
-            choices = [{"name": "Add instruction", "value": "add"}]
-            if instructions:
-                choices.append({"name": "Remove instruction", "value": "remove"})
-                choices.append({"name": "Clear all (use user/defaults)", "value": "clear"})
-            else:
-                choices.append({"name": "Copy from user settings", "value": "copy_user"})
-                choices.append({"name": "Copy from defaults", "value": "copy_defaults"})
+            choices = [{"name": "Add job-specific instruction", "value": "add"}]
+            if job_instructions:
+                choices.append({"name": "Remove job-specific instruction", "value": "remove"})
             choices.append({"name": "Done", "value": "done"})
 
             action = inquirer.select(message="Action:", choices=choices).execute()
@@ -356,35 +351,19 @@ class JobOptions:
                     validate=lambda x: len(x.strip()) > 0
                 ).execute()
                 if instruction:
-                    instructions.append(instruction.strip())
-                    self.job.writing_instructions = instructions
+                    job_instructions.append(instruction.strip())
+                    self.job.writing_instructions = job_instructions
             elif action == "remove":
                 to_remove = inquirer.select(
                     message="Select instruction to remove:",
                     choices=[
                         {"name": f"{i}. {inst[:60]}{'...' if len(inst) > 60 else ''}", "value": i-1}
-                        for i, inst in enumerate(instructions, 1)
+                        for i, inst in enumerate(job_instructions, 1)
                     ] + [{"name": "Cancel", "value": None}],
                 ).execute()
                 if to_remove is not None:
-                    instructions.pop(to_remove)
-                    self.job.writing_instructions = instructions
-            elif action == "clear":
-                self.job.writing_instructions = []
-                print(f"\n{Colors.GREEN}Cleared custom instructions.{Colors.RESET}")
-                time.sleep(1)
-            elif action == "copy_user":
-                user_instructions = self.user.cover_letter_writing_instructions
-                if user_instructions:
-                    self.job.writing_instructions = list(user_instructions)
-                    print(f"\n{Colors.GREEN}Copied {len(user_instructions)} instructions from user settings.{Colors.RESET}")
-                else:
-                    print(f"\n{Colors.YELLOW}No user-level instructions set.{Colors.RESET}")
-                time.sleep(1)
-            elif action == "copy_defaults":
-                self.job.writing_instructions = list(DEFAULT_WRITING_INSTRUCTIONS)
-                print(f"\n{Colors.GREEN}Copied {len(DEFAULT_WRITING_INSTRUCTIONS)} default instructions.{Colors.RESET}")
-                time.sleep(1)
+                    job_instructions.pop(to_remove)
+                    self.job.writing_instructions = job_instructions
 
     def edit_job_details(self):
         """Edit basic job details (company, title, location, link, addressee)."""
@@ -1147,25 +1126,17 @@ class UserOptions:
             print_header("Cover Letter Writing Style")
 
             instructions = self.user.cover_letter_writing_instructions
-            if instructions:
-                print(f"  {Colors.DIM}Custom instructions:{Colors.RESET}\n")
-                for i, instruction in enumerate(instructions, 1):
-                    print(f"  {Colors.GREEN}{i}.{Colors.RESET} {instruction}")
-                print()
-            else:
-                print(f"  {Colors.DIM}Using default instructions:{Colors.RESET}\n")
-                for i, instruction in enumerate(DEFAULT_WRITING_INSTRUCTIONS, 1):
-                    print(f"  {Colors.DIM}{i}. {instruction}{Colors.RESET}")
-                print()
+            print(f"  {Colors.DIM}Instructions:{Colors.RESET}\n")
+            for i, instruction in enumerate(instructions, 1):
+                print(f"  — {Colors.GREEN}{i}.{Colors.RESET} {instruction}")
+            print()
 
-            choices = [{"name": "Add instruction", "value": "add"}]
-            if instructions:
-                choices.append({"name": "Remove instruction", "value": "remove"})
-                choices.append({"name": "Clear all (use defaults)", "value": "clear"})
-            else:
-                choices.append({"name": "Copy defaults to customize", "value": "copy_defaults"})
-            choices.append({"name": "View defaults", "value": "view_defaults"})
-            choices.append({"name": "Done", "value": "done"})
+            choices = [
+                {"name": "Add instruction", "value": "add"}, 
+                {"name": "Remove instruction", "value": "remove"},
+                {"name": "Reset (use defaults)", "value": "reset"},
+                {"name": "Done", "value": "done"}
+            ]
 
             action = inquirer.select(message="Action:", choices=choices).execute()
 
@@ -1190,21 +1161,10 @@ class UserOptions:
                 if to_remove is not None:
                     instructions.pop(to_remove)
                     self.user.cover_letter_writing_instructions = instructions
-            elif action == "clear":
-                self.user.cover_letter_writing_instructions = []
-                print(f"\n{Colors.GREEN}Cleared custom instructions. Using defaults.{Colors.RESET}")
+            elif action == "reset":
+                self.user.reset_cover_letter_writing_instructions()
+                print(f"\n{Colors.GREEN}Reset writing instructions: using defaults.{Colors.RESET}")
                 time.sleep(1)
-            elif action == "copy_defaults":
-                self.user.cover_letter_writing_instructions = list(DEFAULT_WRITING_INSTRUCTIONS)
-                print(f"\n{Colors.GREEN}Copied {len(DEFAULT_WRITING_INSTRUCTIONS)} default instructions.{Colors.RESET}")
-                time.sleep(1)
-            elif action == "view_defaults":
-                clear_screen()
-                print_header("Default Writing Instructions")
-                for i, instruction in enumerate(DEFAULT_WRITING_INSTRUCTIONS, 1):
-                    print(f"  {i}. {instruction}")
-                print()
-                inquirer.text(message="Press Enter to continue...").execute()
 
     def _move_cover_letter_pdfs(self, old_dir: Path, new_dir: Path):
         """Move cover letter PDFs from old directory to new directory."""
