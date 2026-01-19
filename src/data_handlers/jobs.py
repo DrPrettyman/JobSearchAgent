@@ -133,6 +133,11 @@ class Job:
     def link(self) -> str:
         return self._link
 
+    @link.setter
+    def link(self, value: str):
+        self._link = value
+        DATABASE.update_job_field(self._username, self._id, "link", value)
+
     @property
     def query_ids(self) -> list[int]:
         return self._query_ids
