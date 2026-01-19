@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from utils import run_claude
-from prompts import AI_WRITING_GUIDELINES, CRITICAL_WRITING_RULES, DEFAULT_WRITING_INSTRUCTIONS
+from prompts import AI_WRITING_GUIDELINES, CRITICAL_WRITING_RULES
 from services.progress import ProgressCallbackType, print_progress
 
 LATEX_TEMPLATE = r"""\documentclass[11pt]{article}
@@ -321,7 +321,7 @@ def generate_cover_letter_body(
     job_description: str,
     user_background: str,
     cover_letter_topics: list[dict],
-    writing_instructions: list[str] = DEFAULT_WRITING_INSTRUCTIONS
+    writing_instructions: list[str]
 ) -> str:
     """Generate cover letter body text using Claude.
 

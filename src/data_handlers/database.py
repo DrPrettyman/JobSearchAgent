@@ -54,6 +54,16 @@ CREATE TABLE IF NOT EXISTS cover_letter_topics (
     FOREIGN KEY (username, job_id) REFERENCES jobs(username, job_id) ON DELETE CASCADE
 );
 
+-- Job-specific writing instructions
+CREATE TABLE IF NOT EXISTS job_writing_instructions (
+    username TEXT NOT NULL,
+    job_id TEXT NOT NULL,
+    position INTEGER NOT NULL,
+    instruction TEXT NOT NULL,
+    PRIMARY KEY (username, job_id, position),
+    FOREIGN KEY (username, job_id) REFERENCES jobs(username, job_id) ON DELETE CASCADE
+);
+
 -- Query-to-job relationship
 CREATE TABLE IF NOT EXISTS job_query_ids (
     username TEXT NOT NULL,
@@ -308,6 +318,14 @@ class Database:
             """, (username, job_id)).fetchall()
             job["questions"] = [{"question": r["question"], "answer": r["answer"]} for r in q_rows]
 
+            # Writing instructions
+            wi_rows = conn.execute("""
+                SELECT instruction FROM job_writing_instructions
+                WHERE username = ? AND job_id = ?
+                ORDER BY position
+            """, (username, job_id)).fetchall()
+            job["writing_instructions"] = [r["instruction"] for r in wi_rows]
+
             return job
 
     def get_all_jobs(self, username: str) -> list[dict]:
@@ -460,6 +478,20 @@ class Database:
             """, (username, job_id)).fetchall()
             return [{"id": r["question_id"], "question": r["question"],
                      "answer": r["answer"]} for r in rows]
+
+    # --- Job writing instructions operations ---
+
+    def set_job_writing_instructions(self, username: str, job_id: str, instructions: list[str]):
+        """Set writing instructions for a job."""
+        with self.connection() as conn:
+            conn.execute("""
+                DELETE FROM job_writing_instructions WHERE username = ? AND job_id = ?
+            """, (username, job_id))
+            for position, instruction in enumerate(instructions):
+                conn.execute("""
+                    INSERT INTO job_writing_instructions (username, job_id, position, instruction)
+                    VALUES (?, ?, ?, ?)
+                """, (username, job_id, position, instruction))
 
     # --- Job query IDs operations ---
 

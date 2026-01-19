@@ -37,6 +37,7 @@ class Job:
         cover_letter_pdf_path: Path | str | None,
         questions: list[dict],
         query_ids: list[int],
+        writing_instructions: list[str] | None = None,
     ):
         self._username = username
         self._id = job_id
@@ -53,6 +54,7 @@ class Job:
         self._addressee = addressee
         self._questions = questions
         self._query_ids = query_ids
+        self._writing_instructions = writing_instructions or []
 
         # Handle cover letter PDF path
         if cover_letter_pdf_path is not None:
@@ -279,6 +281,21 @@ class Job:
                     DATABASE.update_job_question_answer(self._username, self._id, q["id"], answer)
                 break
 
+    # --- Writing instructions property ---
+
+    @property
+    def writing_instructions(self) -> list[str]:
+        """Job-specific writing instructions for cover letter generation.
+
+        If empty, user's instructions or defaults will be used.
+        """
+        return self._writing_instructions
+
+    @writing_instructions.setter
+    def writing_instructions(self, value: list[str]):
+        self._writing_instructions = value
+        DATABASE.set_job_writing_instructions(self._username, self._id, value)
+
     # --- Other methods ---
 
     def __bool__(self):
@@ -342,6 +359,7 @@ class JobHandler:
             cover_letter_pdf_path=data.get("cover_letter_pdf_path"),
             questions=data.get("questions", []),
             query_ids=data.get("query_ids", []),
+            writing_instructions=data.get("writing_instructions", []),
         )
 
     def __iter__(self):

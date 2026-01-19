@@ -4,6 +4,18 @@ from .jobs import JobHandler, JobStatus
 from .queries import QueryHandler
 
 
+DEFAULT_WRITING_INSTRUCTIONS = [
+    "Write ONLY the body paragraphs (3-4 paragraphs). No salutation or closing.",
+    "Focus on 2-3 strong connections, not every topic.",
+    "Be specific: include metrics and concrete details.",
+    "Keep it concise (250-350 words).",
+    "Use contractions (I'm, I've, wasn't).",
+    "Vary sentence and paragraph length. Not every paragraph should start with 'I'.",
+    "Write to one person, not to an audience.",
+    "Lead with YOUR experience, not descriptions of the job or company.",
+]
+
+
 class User:
     def __init__(self, username: str):
         self._username = username
@@ -32,6 +44,9 @@ class User:
         self._cover_letter_output_dir = user_info.get("cover_letter_output_dir", "")
         self._ai_credentials = user_info.get("ai_credentials", {"method": "claude_local"})
         self._cover_letter_writing_instructions = user_info.get("cover_letter_writing_instructions", [])
+        
+        if self._is_new_user:
+            self.cover_letter_writing_instructions = DEFAULT_WRITING_INSTRUCTIONS
 
     def is_new_user(self) -> bool:
         """Check if user was just created (no existing data)."""
@@ -149,10 +164,7 @@ class User:
 
     @property
     def cover_letter_writing_instructions(self) -> list[str]:
-        """Custom instructions for cover letter generation.
-
-        If empty, defaults will be used by the cover letter service.
-        """
+        """Custom instructions for cover letter generation."""
         return self._cover_letter_writing_instructions
 
     @cover_letter_writing_instructions.setter

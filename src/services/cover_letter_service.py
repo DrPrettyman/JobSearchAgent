@@ -6,6 +6,11 @@ from dataclasses import dataclass
 from data_handlers import Job, User
 from utils import combined_documents_as_string
 from services.progress import ProgressCallbackType, print_progress
+from cover_letter_writer import (
+    LetterWriter,
+    generate_cover_letter_topics,
+    generate_cover_letter_body,
+)
 
 
 @dataclass
@@ -21,16 +26,27 @@ class CoverLetterResult:
 class CoverLetterService:
     """Service for generating cover letters."""
 
-    def __init__(self, on_progress: ProgressCallbackType = print_progress):
-        self.on_progress = on_progress
-
-    def generate(
+    def __init__(
         self,
         job: Job,
         user: User,
-        force_regenerate_topics: bool = False,
-        writing_instructions: list[str] | None = None
-    ) -> CoverLetterResult:
+        on_progress: ProgressCallbackType = print_progress
+    ):
+        self.job = job
+        self.user = user
+        self.on_progress = on_progress
+
+    @property
+    def writing_instructions(self) -> list[str]:
+        """Get writing instructions with priority: job > user > defaults."""
+        instructions = []
+        if self.job.writing_instructions:
+            instructions.extend(self.job.writing_instructions)
+        if self.user.cover_letter_writing_instructions:
+            instructions.extend(self.user.cover_letter_writing_instructions)
+        return list(set(instructions))
+
+    def generate(self, force_regenerate_topics: bool = False) -> CoverLetterResult:
         """Generate a complete cover letter for a job.
 
         This handles the full workflow:
@@ -40,16 +56,13 @@ class CoverLetterService:
         4. Compile to PDF
 
         Args:
-            job: The job to generate a cover letter for
-            user: The user whose background to use
             force_regenerate_topics: If True, regenerate topics even if present
-            writing_instructions: Custom instructions for writing style (uses defaults if None)
 
         Returns:
             CoverLetterResult with success status and details
         """
         # Validate job description
-        job_description = job.full_description or job.description
+        job_description = self.job.full_description or self.job.description
         if not job_description:
             return CoverLetterResult(
                 success=False,
@@ -58,8 +71,8 @@ class CoverLetterService:
 
         # Validate user background
         user_background = (
-            user.comprehensive_summary
-            or combined_documents_as_string(user.combined_source_documents)
+            self.user.comprehensive_summary
+            or combined_documents_as_string(self.user.combined_source_documents)
         )
         if not user_background:
             return CoverLetterResult(
@@ -68,27 +81,15 @@ class CoverLetterService:
             )
 
         # Warn if no comprehensive summary
-        if not user.comprehensive_summary:
+        if not self.user.comprehensive_summary:
             self.on_progress(
                 "Tip: Generate a comprehensive summary for better cover letters",
                 "warning"
             )
 
-        # Lazy import to avoid circular dependency
-        from cover_letter_writer import (
-            LetterWriter,
-            generate_cover_letter_topics,
-            generate_cover_letter_body,
-            DEFAULT_WRITING_INSTRUCTIONS,
-        )
-
-        # Use user's custom instructions, or default if none provided
-        if writing_instructions is None:
-            writing_instructions = user.cover_letter_writing_instructions or DEFAULT_WRITING_INSTRUCTIONS
-
         # Step 1: Generate cover letter topics
         topics_generated = False
-        if not job.cover_letter_topics or force_regenerate_topics:
+        if not self.job.cover_letter_topics or force_regenerate_topics:
             self.on_progress("Analyzing job description...", "info")
             topics = generate_cover_letter_topics(
                 job_description=job_description,
@@ -99,19 +100,19 @@ class CoverLetterService:
                     success=False,
                     message="Failed to analyze job description"
                 )
-            job.cover_letter_topics = topics
+            self.job.cover_letter_topics = topics
             topics_generated = True
             self.on_progress(f"Identified {len(topics)} key topics", "success")
 
         # Step 2: Generate cover letter body
         self.on_progress("Generating cover letter...", "info")
         body = generate_cover_letter_body(
-            job_title=job.title,
-            company=job.company,
+            job_title=self.job.title,
+            company=self.job.company,
             job_description=job_description,
             user_background=user_background,
-            cover_letter_topics=job.cover_letter_topics,
-            writing_instructions=writing_instructions
+            cover_letter_topics=self.job.cover_letter_topics,
+            writing_instructions=self.writing_instructions
         )
 
         if not body:
@@ -121,11 +122,11 @@ class CoverLetterService:
                 topics_generated=topics_generated
             )
 
-        job.cover_letter_body = body
+        self.job.cover_letter_body = body
 
         # Step 3: Compile to PDF
         self.on_progress("Compiling PDF...", "info")
-        pdf_result = self.export_pdf(job, user)
+        pdf_result = self.export_pdf()
 
         if not pdf_result.success:
             return CoverLetterResult(
@@ -143,44 +144,37 @@ class CoverLetterService:
             pdf_path=pdf_result.pdf_path
         )
 
-    def export_pdf(self, job: Job, user: User) -> CoverLetterResult:
+    def export_pdf(self) -> CoverLetterResult:
         """Export an existing cover letter to PDF.
 
         Requires job.cover_letter_body to be set.
 
-        Args:
-            job: The job with cover letter body
-            user: The user for letterhead info
-
         Returns:
             CoverLetterResult with PDF path on success
         """
-        if not job.cover_letter_body:
+        if not self.job.cover_letter_body:
             return CoverLetterResult(
                 success=False,
                 message="No cover letter body to export"
             )
 
-        # Lazy import to avoid circular dependency
-        from cover_letter_writer import LetterWriter
-
         # Get first non-LinkedIn website for the cover letter header
-        non_linkedin_sites = [s for s in user.websites if "linkedin.com" not in s.lower()]
+        non_linkedin_sites = [s for s in self.user.websites if "linkedin.com" not in s.lower()]
 
         letter_writer = LetterWriter(
-            company=job.company,
-            title=job.title,
-            cover_letter_body=job.cover_letter_body,
-            user_name=user.name,
-            user_email=user.email,
-            user_linkedin_url=user.linkedin_url,
-            user_credentials=user.credentials,
+            company=self.job.company,
+            title=self.job.title,
+            cover_letter_body=self.job.cover_letter_body,
+            user_name=self.user.name,
+            user_email=self.user.email,
+            user_linkedin_url=self.user.linkedin_url,
+            user_credentials=self.user.credentials,
             user_website=non_linkedin_sites[0] if non_linkedin_sites else None,
-            addressee=job.addressee,
+            addressee=self.job.addressee,
         )
 
         pdf_path = letter_writer.save_pdf(
-            output_dir=user.cover_letter_output_dir,
+            output_dir=self.user.cover_letter_output_dir,
             on_progress=self.on_progress
         )
 
@@ -190,7 +184,7 @@ class CoverLetterService:
                 message="Failed to compile PDF"
             )
 
-        job.set_cover_letter_pdf_path(pdf_path.resolve())
+        self.job.set_cover_letter_pdf_path(pdf_path.resolve())
 
         return CoverLetterResult(
             success=True,
@@ -198,29 +192,19 @@ class CoverLetterService:
             pdf_path=pdf_path
         )
 
-    def regenerate_body_only(
-        self,
-        job: Job,
-        user: User,
-        writing_instructions: list[str] | None = None
-    ) -> CoverLetterResult:
+    def regenerate_body_only(self) -> CoverLetterResult:
         """Regenerate just the cover letter body, keeping existing topics.
-
-        Args:
-            job: The job (must have cover_letter_topics set)
-            user: The user whose background to use
-            writing_instructions: Custom instructions for writing style (uses defaults if None)
 
         Returns:
             CoverLetterResult with success status
         """
-        if not job.cover_letter_topics:
+        if not self.job.cover_letter_topics:
             return CoverLetterResult(
                 success=False,
                 message="No topics available - generate full cover letter first"
             )
 
-        job_description = job.full_description or job.description
+        job_description = self.job.full_description or self.job.description
         if not job_description:
             return CoverLetterResult(
                 success=False,
@@ -228,8 +212,8 @@ class CoverLetterService:
             )
 
         user_background = (
-            user.comprehensive_summary
-            or combined_documents_as_string(user.combined_source_documents)
+            self.user.comprehensive_summary
+            or combined_documents_as_string(self.user.combined_source_documents)
         )
         if not user_background:
             return CoverLetterResult(
@@ -238,20 +222,13 @@ class CoverLetterService:
             )
 
         self.on_progress("Regenerating cover letter...", "info")
-        # Lazy import to avoid circular dependency
-        from cover_letter_writer import generate_cover_letter_body, DEFAULT_WRITING_INSTRUCTIONS
-
-        # Use user's custom instructions, or default if none provided
-        if writing_instructions is None:
-            writing_instructions = user.cover_letter_writing_instructions or DEFAULT_WRITING_INSTRUCTIONS
-
         body = generate_cover_letter_body(
-            job_title=job.title,
-            company=job.company,
+            job_title=self.job.title,
+            company=self.job.company,
             job_description=job_description,
             user_background=user_background,
-            cover_letter_topics=job.cover_letter_topics,
-            writing_instructions=writing_instructions
+            cover_letter_topics=self.job.cover_letter_topics,
+            writing_instructions=self.writing_instructions
         )
 
         if not body:
@@ -260,7 +237,7 @@ class CoverLetterService:
                 message="Failed to generate cover letter body"
             )
 
-        job.cover_letter_body = body
+        self.job.cover_letter_body = body
 
         # Also regenerate PDF
-        return self.export_pdf(job, user)
+        return self.export_pdf()

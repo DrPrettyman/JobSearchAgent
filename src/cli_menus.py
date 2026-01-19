@@ -125,6 +125,7 @@ from utils import (
 from search_jobs import JobSearcher
 from services import CoverLetterService, UserProfileService
 from question_answerer import generate_answers_batch
+from prompts import DEFAULT_WRITING_INSTRUCTIONS
 
 # Ordered by precedence (most prestigious first)
 CREDENTIAL_OPTIONS = [
@@ -140,22 +141,30 @@ class JobOptions:
 
     def export_pdf_cover_letter(self):
         """Export cover letter to PDF using the service."""
-        service = CoverLetterService(on_progress=lambda msg, level: print(
-            f"{Colors.RED if level == 'error' else Colors.CYAN}{msg}{Colors.RESET}"
-        ))
-        result = service.export_pdf(job=self.job, user=self.user)
+        service = CoverLetterService(
+            job=self.job,
+            user=self.user,
+            on_progress=lambda msg, level: print(
+                f"{Colors.RED if level == 'error' else Colors.CYAN}{msg}{Colors.RESET}"
+            )
+        )
+        result = service.export_pdf()
         if not result.success:
             print(f"{Colors.RED}{result.message}{Colors.RESET}\n")
-        
+
     def generate_cover_letter_for_job(self):
         """Generate cover letter content for a job."""
         print(f"\n{Colors.CYAN}Generating cover letter...{Colors.RESET}")
 
-        service = CoverLetterService(on_progress=lambda msg, level: print(
-            f"{Colors.GREEN if level == 'success' else Colors.YELLOW if level == 'warning' else Colors.CYAN}{msg}{Colors.RESET}"
-        ))
+        service = CoverLetterService(
+            job=self.job,
+            user=self.user,
+            on_progress=lambda msg, level: print(
+                f"{Colors.GREEN if level == 'success' else Colors.YELLOW if level == 'warning' else Colors.CYAN}{msg}{Colors.RESET}"
+            )
+        )
 
-        result = service.generate(job=self.job, user=self.user)
+        result = service.generate()
 
         if result.success:
             print(f"{Colors.GREEN}✓ Cover letter generated!{Colors.RESET}\n")
@@ -306,6 +315,76 @@ class JobOptions:
         if confirm:
             self.job.questions = []
             print(f"\n{Colors.GREEN}✓ Questions cleared.{Colors.RESET}\n")
+
+    def configure_job_writing_instructions(self):
+        """Configure job-specific cover letter writing instructions."""
+        while True:
+            clear_screen()
+            print_header(f"Writing Style: {self.job.title}")
+
+            instructions = self.job.writing_instructions
+            if instructions:
+                print(f"  {Colors.DIM}Custom instructions for this job:{Colors.RESET}\n")
+                for i, instruction in enumerate(instructions, 1):
+                    print(f"  {Colors.GREEN}{i}.{Colors.RESET} {instruction}")
+                print()
+            else:
+                print(f"  {Colors.DIM}No custom instructions. Using user/default settings.{Colors.RESET}\n")
+                # Show what will be used
+                user_instructions = self.user.cover_letter_writing_instructions
+                if user_instructions:
+                    print(f"  {Colors.DIM}(User-level instructions will be used){Colors.RESET}\n")
+                else:
+                    print(f"  {Colors.DIM}(Default instructions will be used){Colors.RESET}\n")
+
+            choices = [{"name": "Add instruction", "value": "add"}]
+            if instructions:
+                choices.append({"name": "Remove instruction", "value": "remove"})
+                choices.append({"name": "Clear all (use user/defaults)", "value": "clear"})
+            else:
+                choices.append({"name": "Copy from user settings", "value": "copy_user"})
+                choices.append({"name": "Copy from defaults", "value": "copy_defaults"})
+            choices.append({"name": "Done", "value": "done"})
+
+            action = inquirer.select(message="Action:", choices=choices).execute()
+
+            if action == "done":
+                break
+            elif action == "add":
+                instruction = inquirer.text(
+                    message="Enter instruction:",
+                    validate=lambda x: len(x.strip()) > 0
+                ).execute()
+                if instruction:
+                    instructions.append(instruction.strip())
+                    self.job.writing_instructions = instructions
+            elif action == "remove":
+                to_remove = inquirer.select(
+                    message="Select instruction to remove:",
+                    choices=[
+                        {"name": f"{i}. {inst[:60]}{'...' if len(inst) > 60 else ''}", "value": i-1}
+                        for i, inst in enumerate(instructions, 1)
+                    ] + [{"name": "Cancel", "value": None}],
+                ).execute()
+                if to_remove is not None:
+                    instructions.pop(to_remove)
+                    self.job.writing_instructions = instructions
+            elif action == "clear":
+                self.job.writing_instructions = []
+                print(f"\n{Colors.GREEN}Cleared custom instructions.{Colors.RESET}")
+                time.sleep(1)
+            elif action == "copy_user":
+                user_instructions = self.user.cover_letter_writing_instructions
+                if user_instructions:
+                    self.job.writing_instructions = list(user_instructions)
+                    print(f"\n{Colors.GREEN}Copied {len(user_instructions)} instructions from user settings.{Colors.RESET}")
+                else:
+                    print(f"\n{Colors.YELLOW}No user-level instructions set.{Colors.RESET}")
+                time.sleep(1)
+            elif action == "copy_defaults":
+                self.job.writing_instructions = list(DEFAULT_WRITING_INSTRUCTIONS)
+                print(f"\n{Colors.GREEN}Copied {len(DEFAULT_WRITING_INSTRUCTIONS)} default instructions.{Colors.RESET}")
+                time.sleep(1)
 
     def edit_job_details(self):
         """Edit basic job details (company, title, location, link, addressee)."""
@@ -469,7 +548,13 @@ class JobOptions:
             else:
                 if self.job.cover_letter_body:
                     choices.append({"name": "📄 Retry PDF cover letter export", "value": "cover_letter_pdf_export"})
-            
+
+            # Writing style option
+            if self.job.writing_instructions:
+                choices.append({"name": "✏️ Edit writing style (custom)", "value": "writing_instructions"})
+            else:
+                choices.append({"name": "✏️ Set custom writing style", "value": "writing_instructions"})
+
             choices.append({"name": "← Back to jobs list", "value": "back"})
 
             print()
@@ -561,7 +646,8 @@ class JobOptions:
                 self.generate_question_answers()
             elif action == "clear_questions":
                 self.clear_questions()
-       
+            elif action == "writing_instructions":
+                self.configure_job_writing_instructions()
 
 class UserOptions:
     """Menu for viewing and editing user information."""
@@ -594,16 +680,6 @@ class UserOptions:
         # Step 2: Online presence
         print_section("Step 2: Online Presence")
         self.configure_websites()
-
-        # Fetch online presence if URLs configured
-        has_online_urls = bool(self.user.websites)
-        if has_online_urls:
-            fetch = inquirer.confirm(
-                message="Fetch content from your online profiles?",
-                default=True
-            ).execute()
-            if fetch:
-                self.refresh_online_presence()
 
         # Step 3: Source documents
         print_section("Step 3: Source Documents (CV/Resume)")
@@ -1064,8 +1140,75 @@ class UserOptions:
         if new_dir and old_dir != new_dir:
             self._move_cover_letter_pdfs(old_dir, new_dir)
 
+    def configure_writing_instructions(self):
+        """Configure cover letter writing style instructions."""
+        while True:
+            clear_screen()
+            print_header("Cover Letter Writing Style")
+
+            instructions = self.user.cover_letter_writing_instructions
+            if instructions:
+                print(f"  {Colors.DIM}Custom instructions:{Colors.RESET}\n")
+                for i, instruction in enumerate(instructions, 1):
+                    print(f"  {Colors.GREEN}{i}.{Colors.RESET} {instruction}")
+                print()
+            else:
+                print(f"  {Colors.DIM}Using default instructions:{Colors.RESET}\n")
+                for i, instruction in enumerate(DEFAULT_WRITING_INSTRUCTIONS, 1):
+                    print(f"  {Colors.DIM}{i}. {instruction}{Colors.RESET}")
+                print()
+
+            choices = [{"name": "Add instruction", "value": "add"}]
+            if instructions:
+                choices.append({"name": "Remove instruction", "value": "remove"})
+                choices.append({"name": "Clear all (use defaults)", "value": "clear"})
+            else:
+                choices.append({"name": "Copy defaults to customize", "value": "copy_defaults"})
+            choices.append({"name": "View defaults", "value": "view_defaults"})
+            choices.append({"name": "Done", "value": "done"})
+
+            action = inquirer.select(message="Action:", choices=choices).execute()
+
+            if action == "done":
+                break
+            elif action == "add":
+                instruction = inquirer.text(
+                    message="Enter instruction:",
+                    validate=lambda x: len(x.strip()) > 0
+                ).execute()
+                if instruction:
+                    instructions.append(instruction.strip())
+                    self.user.cover_letter_writing_instructions = instructions
+            elif action == "remove":
+                to_remove = inquirer.select(
+                    message="Select instruction to remove:",
+                    choices=[
+                        {"name": f"{i}. {inst[:60]}{'...' if len(inst) > 60 else ''}", "value": i-1}
+                        for i, inst in enumerate(instructions, 1)
+                    ] + [{"name": "Cancel", "value": None}],
+                ).execute()
+                if to_remove is not None:
+                    instructions.pop(to_remove)
+                    self.user.cover_letter_writing_instructions = instructions
+            elif action == "clear":
+                self.user.cover_letter_writing_instructions = []
+                print(f"\n{Colors.GREEN}Cleared custom instructions. Using defaults.{Colors.RESET}")
+                time.sleep(1)
+            elif action == "copy_defaults":
+                self.user.cover_letter_writing_instructions = list(DEFAULT_WRITING_INSTRUCTIONS)
+                print(f"\n{Colors.GREEN}Copied {len(DEFAULT_WRITING_INSTRUCTIONS)} default instructions.{Colors.RESET}")
+                time.sleep(1)
+            elif action == "view_defaults":
+                clear_screen()
+                print_header("Default Writing Instructions")
+                for i, instruction in enumerate(DEFAULT_WRITING_INSTRUCTIONS, 1):
+                    print(f"  {i}. {instruction}")
+                print()
+                inquirer.text(message="Press Enter to continue...").execute()
+
     def _move_cover_letter_pdfs(self, old_dir: Path, new_dir: Path):
         """Move cover letter PDFs from old directory to new directory."""
+        #TODO: This is business logic that should be in a separate module
         old_dir = Path(old_dir)
         new_dir = Path(new_dir)
 
@@ -1281,6 +1424,7 @@ class UserOptions:
                     {"name": "Edit job titles", "value": self.configure_job_titles},
                     {"name": "Edit job locations", "value": self.configure_job_locations},
                     {"name": "Edit cover letter output directory", "value": self.configure_cover_letter_output_dir},
+                    {"name": "Edit cover letter writing style", "value": self.configure_writing_instructions},
                     {"name": "Edit AI credentials", "value": self.configure_ai_credentials},
                     {"name": "─" * 30, "value": None, "disabled": ""},
                     {"name": "Refresh source documents", "value": self.refresh_source_documents},
