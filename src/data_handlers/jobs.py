@@ -466,13 +466,21 @@ class JobHandler:
         """Get all jobs with TEMP status."""
         return [j for j in self._jobs_cache.values() if j.status == JobStatus.TEMP]
 
-    def delete_job(self, job_id: str):
+    def delete_job(self, job_id: str | Job):
         """Delete a job from database and cache."""
+        if isinstance(job_id, Job):
+            job_id = job_id._id
         DATABASE.delete_job(self._username, job_id)
         self._jobs_cache.pop(job_id, None)
 
-    def promote_temp_jobs(self, job_ids: list[str]):
-        """Change TEMP jobs to PENDING status."""
+    def promote_temp_jobs(self, job_ids: list[str] = None) -> list[str]:
+        """Change TEMP jobs to PENDING status. If job_ids is None, promote all"""
+        if job_ids is None:
+            job_ids = [j._id for j in self.get_temp_jobs()]
+        
+        promoted = []
         for job_id in job_ids:
             if job_id in self._jobs_cache:
                 self._jobs_cache[job_id].status = JobStatus.PENDING
+                promoted.append(job_id)
+        return promoted
