@@ -31,7 +31,23 @@ An AI-powered CLI tool for automating your job search. Upload your CV, configure
 - [Claude CLI](https://docs.anthropic.com/claude-cli) installed and configured
 - LaTeX distribution (for PDF cover letters) - `pdflatex` must be available in PATH
   - macOS: `brew install --cask mactex`
-  - Ubuntu: `sudo apt-get install texlive-latex-base`
+  - Ubuntu/Debian: `sudo apt-get install texlive-latex-base`
+  - Windows: Install [MiKTeX](https://miktex.org/)
+
+### Platform Support
+
+| Platform | Clipboard | File Opening | Notes |
+|----------|-----------|--------------|-------|
+| macOS | ✓ Full (text + PDF) | ✓ | No additional setup |
+| Windows | ✓ Text only | ✓ | PDF copies file path |
+| Linux | ✓ Text only | ✓ | Requires `xclip` or `xsel` |
+
+**Linux clipboard setup:**
+```bash
+sudo apt install xclip    # Debian/Ubuntu
+sudo dnf install xclip    # Fedora
+sudo pacman -S xclip      # Arch
+```
 
 ### Setup
 
@@ -165,33 +181,55 @@ JobSearch/
 ├── README.md
 └── src/
     ├── main.py               # CLI entry point, argument parsing
-    ├── cli_menus.py          # All menu logic (UserOptions, JobOptions)
+    ├── cli_menus.py          # CLI menu UI (UserOptions, JobOptions)
     ├── cli_utils.py          # Terminal formatting, colors, display helpers
-    ├── utils.py              # Core utilities (Claude API, document parsing, scraping)
+    ├── utils.py              # Core utilities (Claude API, document parsing)
     ├── search_jobs.py        # Job search logic using Claude + web search
     ├── cover_letter_writer.py # Cover letter generation + LaTeX PDF export
     ├── online_presence.py    # LinkedIn, GitHub, website scraping
-    └── data_handlers/
+    ├── question_answerer.py  # Application question answering
+    ├── prompts.py            # AI prompt templates and guidelines
+    ├── services/             # Business logic layer (UI-agnostic)
+    │   ├── __init__.py
+    │   ├── progress.py       # Progress callback protocol
+    │   ├── cover_letter_service.py  # Cover letter generation service
+    │   └── user_profile_service.py  # User profile management service
+    └── data_handlers/        # Data persistence layer
         ├── __init__.py
-        ├── user_data.py      # User profile management
-        ├── jobs_data.py      # Job storage and management
-        ├── query_data.py     # Search query management
+        ├── database.py       # SQLite database operations
+        ├── users.py          # User profile management
+        ├── jobs.py           # Job storage and management
+        ├── queries.py        # Search query management
         └── utils.py          # Data utilities (datetime, etc.)
 ```
 
+### Architecture
+
+The codebase follows a layered architecture:
+
+1. **CLI Layer** (`cli_menus.py`, `cli_utils.py`) - User interface, menu navigation, display formatting
+2. **Services Layer** (`services/`) - Business logic, AI operations, decoupled from UI
+3. **Data Layer** (`data_handlers/`) - SQLite persistence, data models
+
+This separation enables future GUI development by reusing the services layer with different UI implementations.
+
 ## Data Storage
 
-User data is stored in `~/.JobSearch/<user_id>/`:
+User data is stored in `~/.JobSearch/`:
 
 ```
 ~/.JobSearch/
+├── jobsearch.db              # SQLite database (all user data)
 └── <user_id>/
-    ├── user_info.json        # User profile, preferences, summaries
-    ├── jobs.json             # Found jobs with status
-    ├── search_queries.csv    # Generated search queries
-    ├── search_query_results.csv  # Query execution history
     └── cover_letters/        # Generated PDF cover letters
 ```
+
+The SQLite database stores:
+- User profiles and preferences
+- Professional summaries
+- Job listings with status tracking
+- Search queries and execution history
+- Online presence data
 
 ## Supported Document Formats
 
