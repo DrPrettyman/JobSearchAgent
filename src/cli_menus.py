@@ -1126,7 +1126,7 @@ class UserOptions:
             instructions = self.user.cover_letter_writing_instructions
             print(f"  {Colors.DIM}Instructions:{Colors.RESET}\n")
             for i, instruction in enumerate(instructions, 1):
-                print(f"  — {Colors.GREEN}{i}.{Colors.RESET} {instruction}")
+                print(f"  {Colors.GREEN}{i}.{Colors.RESET} {instruction}")
             print()
 
             choices = [
