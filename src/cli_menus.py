@@ -706,7 +706,7 @@ class UserOptions:
             else:
                 fetched_summary = f"Unable to fetch (attempted {readable_time})"
             print(f"  {Colors.GREEN}•{Colors.RESET} {hyperlink(site)} {Colors.DIM}{fetched_summary}{Colors.RESET}")
-        other_websites = [s for s in self.user.all_websites if s not in self.user.all_online_presence_sites]
+        other_websites = [s for s in self.user.websites if s not in self.user.all_online_presence_sites]
         for site in other_websites:
             print(f"  {Colors.GREEN}•{Colors.RESET} {hyperlink(site)} {Colors.DIM}Not fetched{Colors.RESET}")
             
