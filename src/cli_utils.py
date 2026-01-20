@@ -106,6 +106,18 @@ def print_list(label: str, items: list, indent: int = 2):
             print(f"{spaces}  {Colors.GREEN}•{Colors.RESET} {item}")
     else:
         print(f"{spaces}  {Colors.DIM}(none){Colors.RESET}")
+        
+
+def print_numbered_list(label: str, items: list, indent: int = 2):
+    spaces = " " * indent
+    print(f"{spaces}{Colors.DIM}{label}:{Colors.RESET}")
+    if items:
+        pad = len(str(len(items))) + 1
+        for n, item in enumerate(items, 1):
+            n_str = (str(n) + ".").ljust(pad)
+            print(f"{spaces}  {Colors.GREEN}{n_str}{Colors.RESET} {item}")
+    else:
+        print(f"{spaces}  {Colors.DIM}(none){Colors.RESET}")
 
 
 def print_box(title: str, content: str, width: int = DEFAULT_WIDTH - 2, indent: int = 2):
