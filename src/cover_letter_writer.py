@@ -10,7 +10,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from utils import run_claude
-from prompts import AI_WRITING_GUIDELINES
+from prompts import AI_WRITING_GUIDELINES, CRITICAL_WRITING_RULES
+from services.progress import ProgressCallbackType, print_progress
 
 LATEX_TEMPLATE = r"""\documentclass[11pt]{article}
 
@@ -63,11 +64,10 @@ Yours <INSERT_SIGNOFF>,
 
 \vspace{24pt}
 
-Joshua Prettyman
+<INSERT_SIGNATURE_NAME>
 
 \end{document}
 """
-
 
 def escape_latex(text: str) -> str:
     """Escape special LaTeX characters in text."""
@@ -87,7 +87,11 @@ def escape_latex(text: str) -> str:
     return text
 
 
-def compile_latex_to_pdf(latex_source: str, output_path: Path) -> bool:
+def compile_latex_to_pdf(
+    latex_source: str,
+    output_path: Path,
+    on_progress: ProgressCallbackType = print_progress
+) -> bool:
     """Compile LaTeX source to PDF."""
     with tempfile.TemporaryDirectory() as tmpdir:
         tex_file = Path(tmpdir) / "latex_source.tex"
@@ -101,7 +105,7 @@ def compile_latex_to_pdf(latex_source: str, output_path: Path) -> bool:
                 text=True
             )
             if result.returncode != 0:
-                print(f"LaTeX compilation error:\n{result.stdout}\n{result.stderr}")
+                on_progress(f"LaTeX compilation error:\n{result.stdout}\n{result.stderr}", "error")
                 return False
 
         # Copy PDF to output location
@@ -114,25 +118,25 @@ def compile_latex_to_pdf(latex_source: str, output_path: Path) -> bool:
 
 
 class LetterWriter:
-    def __init__(self, 
+    def __init__(self,
         company: str,
         title: str,
         cover_letter_body: str,
         user_name: str,
         user_email: str,
-        user_linkedin_ext: str,
+        user_linkedin_url: str = "",
         user_credentials: list[str] = None,
         user_website: str = None,
         addressee: str = None):
-        
+
         self.company: str = company
         self.title: str = title
         self.cover_letter_body: str = cover_letter_body
-        
+
         self.user_name = user_name
         self.user_credentials = user_credentials  # e.g. ["PhD", "MBA"]
         self.user_email = user_email
-        self.user_linkedin_ext = user_linkedin_ext
+        self.user_linkedin_url = user_linkedin_url
         self.user_website = user_website
         
         if addressee:
@@ -154,15 +158,19 @@ class LetterWriter:
     @property
     def contact_info(self) -> str:
         email = r"\href{mailto:email}{email}".replace("email", self.user_email)
-        linkedin = r"\href{https://linkedin.com/in/ext}{in/ext}".replace("ext", self.user_linkedin_ext)
+        contact_items = [email]
+        
+        if self.user_linkedin_url:
+            # Extract display text like "in/username" from full URL
+            display = re.sub(r"https?://(www\.)?linkedin\.com/", "", self.user_linkedin_url).rstrip("/")
+            linkedin = r"\href{" + self.user_linkedin_url + r"}{" + display + r"}"
+            contact_items.append(linkedin)
 
         if self.user_website:
             website = r"\href{<FULL>}{<STRIPPED>}".replace("<FULL>", self.user_website).replace("<STRIPPED>", re.sub(r"https?://", "", self.user_website))
-            contact_info = [email, website, linkedin]
-        else:
-            contact_info = [email, linkedin]
+            contact_items.append(website)
 
-        return r" \textbar{} ".join(contact_info)
+        return r" \textbar{} ".join(contact_items)
             
     @property
     def full_name_for_header(self) -> str:
@@ -197,13 +205,22 @@ class LetterWriter:
         latex_template = latex_template.replace('<INSERT_ADDRESSEE>', addressee_escaped)
         latex_template = latex_template.replace('<INSERT_BODY>', cover_letter_formatted)
         latex_template = latex_template.replace('<INSERT_SIGNOFF>', self.sign_off)
+        latex_template = latex_template.replace('<INSERT_SIGNATURE_NAME>', escape_latex(self.user_name))
 
-        return latex_template      
+        return latex_template
 
-    def save_pdf(self, output_dir: Path) -> Path | None:
+    def save_pdf(
+        self,
+        output_dir: Path,
+        on_progress: ProgressCallbackType = print_progress
+    ) -> Path | None:
         """Save PDF cover letter to file."""
         output_path = output_dir / f"{self.filename}.pdf"
-        compiled = compile_latex_to_pdf(self.latex_source_cover_letter, output_path)
+        compiled = compile_latex_to_pdf(
+            self.latex_source_cover_letter,
+            output_path,
+            on_progress=on_progress
+        )
         if compiled:
             return output_path
         else:
@@ -303,7 +320,8 @@ def generate_cover_letter_body(
     company: str,
     job_description: str,
     user_background: str,
-    cover_letter_topics: list[dict]
+    cover_letter_topics: list[dict],
+    writing_instructions: list[str]
 ) -> str:
     """Generate cover letter body text using Claude.
 
@@ -319,41 +337,50 @@ def generate_cover_letter_body(
     """
     if not job_description or not user_background or not cover_letter_topics:
         return ""
+    
+    writing_instructions = ["Write ONLY the body paragraphs (3-4 paragraphs). No salutation or closing."] + writing_instructions
 
-    # Format topics for the prompt
+    # Format topics to emphasize the CONNECTION, not just list topic + experience
     topics_formatted = "\n".join(
-        f"- Topic: {t['topic']}\n  Relevant experience: {t['relevant_experience']}"
-        for t in cover_letter_topics
+        f"{i+1}. Connection: {t['topic']} ← {t['relevant_experience']}"
+        for i, t in enumerate(cover_letter_topics)
     )
 
-    prompt = f"""Write a cover letter body for this job application.
+    prompt = f"""You will write a cover letter body. Read ALL instructions before writing.
 
-CANDIDATE BACKGROUND:
-{user_background}
+CRITICAL RULES (you must check each one before finalizing):
+{chr(10).join(f"{i+1}. {rule}" for i, rule in enumerate(CRITICAL_WRITING_RULES))}
 
-JOB DETAILS:
-Company: {company}
-Position: {job_title}
-Description:
-{job_description}
+AVOID THESE AI WRITING PATTERNS:
+{chr(10).join(f"{i+1}. {rule}" for i, rule in enumerate(AI_WRITING_GUIDELINES))}
 
-KEY TOPICS TO ADDRESS (pre-analyzed, use these to structure the letter):
-{topics_formatted}
+---
+
+TASK: Write a cover letter for {job_title} at {company}.
 
 INSTRUCTIONS:
-- Write ONLY the body paragraphs (3-4 paragraphs)
-- Do NOT include salutation (Dear...) or closing (Yours sincerely...)
-- Use the pre-analyzed topics above to guide what you write about
-- Don't try to hit every topic; focus on 3-4 strong connections
-- Be specific: include metrics and concrete details from the relevant experience
-- Keep it concise (250-350 words)
-- Use contractions (I'm, I've, wasn't) for a natural tone
-- Vary sentence and paragraph length deliberately
-- Write a letter, not a post. This should read like personal correspondence, not LinkedIn content.
+{chr(10).join(f"- {instruction}" for instruction in writing_instructions)}
 
-{AI_WRITING_GUIDELINES}
+CANDIDATE BACKGROUND (draw specific details from this):
+{user_background}
+¡Be true to the candidate background: do not invent any experience or skills!
 
-Write the cover letter body now:"""
+JOB DESCRIPTION (for context only - do NOT describe this back to the reader):
+{job_description}
+
+CONNECTIONS TO MAKE (your experience → their need):
+{topics_formatted}
+
+---
+
+PROCESS:
+1. Follow the rules and instructions.
+2. Write a draft of the cover letter body (3-4 paragraphs, 250-350 words). No salutations or closings. Only the body text.
+3. Review your draft against each of the 5 CRITICAL RULES above.
+4. If any rule is violated, revise that sentence.
+5. Output ONLY the final revised version.
+
+Begin:"""
 
     success, response = run_claude(prompt, timeout=120)
 

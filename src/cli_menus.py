@@ -1,16 +1,108 @@
 """CLI menu functions for JobSearch application."""
 
-import json
+import os
+import platform
+import shutil
+import subprocess
 import time
-import re
+import urllib.parse
+import webbrowser
 from pathlib import Path
 from datetime import datetime
+
+
+def get_platform() -> str:
+    """Return normalized platform name: 'macos', 'windows', or 'linux'."""
+    system = platform.system().lower()
+    if system == "darwin":
+        return "macos"
+    elif system == "windows":
+        return "windows"
+    return "linux"
+
+
+def open_file(path: str) -> bool:
+    """Open a file with the system's default application. Returns True on success."""
+    try:
+        plat = get_platform()
+        if plat == "macos":
+            subprocess.run(["open", path], check=True)
+        elif plat == "windows":
+            os.startfile(path)
+        else:  # Linux
+            subprocess.run(["xdg-open", path], check=True)
+        return True
+    except Exception:
+        return False
+
+
+def copy_text_to_clipboard(text: str) -> bool:
+    """Copy text to system clipboard. Returns True on success."""
+    try:
+        plat = get_platform()
+        if plat == "macos":
+            subprocess.run(["pbcopy"], input=text.encode(), check=True)
+        elif plat == "windows":
+            subprocess.run(["clip"], input=text.encode(), check=True, shell=True)
+        else:  # Linux - try xclip, fall back to xsel
+            try:
+                subprocess.run(
+                    ["xclip", "-selection", "clipboard"],
+                    input=text.encode(),
+                    check=True
+                )
+            except FileNotFoundError:
+                subprocess.run(
+                    ["xsel", "--clipboard", "--input"],
+                    input=text.encode(),
+                    check=True
+                )
+        return True
+    except Exception:
+        return False
+
+
+def copy_pdf_to_clipboard(path: str) -> tuple[bool, str]:
+    """Copy PDF file to clipboard. Returns (success, message)."""
+    plat = get_platform()
+    if plat == "macos":
+        try:
+            script = f'set the clipboard to (read (POSIX file "{path}") as «class PDF »)'
+            subprocess.run(["osascript", "-e", script], check=True)
+            return True, "PDF copied to clipboard"
+        except Exception:
+            return False, "Failed to copy PDF to clipboard"
+    elif plat == "windows":
+        # Windows doesn't have a simple way to copy PDF as file to clipboard from CLI
+        # Copy the file path instead
+        try:
+            subprocess.run(["clip"], input=path.encode(), check=True, shell=True)
+            return True, "PDF file path copied to clipboard (use Ctrl+V to paste path)"
+        except Exception:
+            return False, "Failed to copy to clipboard"
+    else:  # Linux
+        # Linux also lacks simple PDF-to-clipboard; copy path instead
+        try:
+            try:
+                subprocess.run(
+                    ["xclip", "-selection", "clipboard"],
+                    input=path.encode(),
+                    check=True
+                )
+            except FileNotFoundError:
+                subprocess.run(
+                    ["xsel", "--clipboard", "--input"],
+                    input=path.encode(),
+                    check=True
+                )
+            return True, "PDF file path copied to clipboard"
+        except Exception:
+            return False, "Failed to copy to clipboard (install xclip or xsel)"
 
 from InquirerPy import inquirer
 from InquirerPy.validator import PathValidator
 
-from data_handlers import User, Job, Jobs, JobStatus
-from data_handlers.utils import datetime_iso
+from data_handlers import User, Job, JobStatus
 from cli_utils import (
     Colors,
     ASCII_ART_JOBSEARCH,
@@ -27,17 +119,12 @@ from cli_utils import (
 )
 from utils import (
     combined_documents_as_string,
-    run_claude,
-    extract_url_slug,
     summarize_source_documents,
-    summarize_online_presence,
     combine_documents,
-    extract_json_from_response,
 )
-from online_presence import fetch_online_presence
 from search_jobs import JobSearcher
-from cover_letter_writer import LetterWriter, generate_cover_letter_topics, generate_cover_letter_body
-from question_answerer import generate_answer, generate_answers_batch
+from services import CoverLetterService, UserProfileService
+from question_answerer import generate_answers_batch
 
 # Ordered by precedence (most prestigious first)
 CREDENTIAL_OPTIONS = [
@@ -50,86 +137,36 @@ class JobOptions:
     def __init__(self, user: User, job_id: str):
         self.user: User = user
         self.job: Job = user.job_handler[job_id]
-        
-        self._letter_compiler = None
-        
-    @property
-    def letter_compiler(self):
-        if self._letter_compiler is None:
-            self._letter_compiler = LetterWriter(
-                company=self.job.company,
-                title=self.job.title,
-                cover_letter_body=self.job.cover_letter_body,
-                user_name=self.user.name,
-                user_email=self.user.email,
-                user_linkedin_ext=self.user.linkedin_extension,
-                user_credentials=self.user.credentials,
-                user_website=self.user.websites[0] if self.user.websites else None,
-                addressee=self.job.addressee
-            )
-        return self._letter_compiler
-        
-    def export_pdf_cover_letter(self):
-        pdf_path = self.letter_compiler.save_pdf(output_dir=self.user.cover_letter_output_dir)
-        if pdf_path is None:
-            print(f"{Colors.RED}Failed to compile cover letter as PDF file.{Colors.RESET}\n")
-            return
 
-        self.job.set_cover_letter_pdf_path(pdf_path.resolve())
-        self.user.job_handler.save()
-        
+    def export_pdf_cover_letter(self):
+        """Export cover letter to PDF using the service."""
+        service = CoverLetterService(
+            job=self.job,
+            user=self.user,
+            on_progress=lambda msg, level: print(
+                f"{Colors.RED if level == 'error' else Colors.CYAN}{msg}{Colors.RESET}"
+            )
+        )
+        result = service.export_pdf()
+        if not result.success:
+            print(f"{Colors.RED}{result.message}{Colors.RESET}\n")
+
     def generate_cover_letter_for_job(self):
         """Generate cover letter content for a job."""
-        # Use full description if available, otherwise use summary
-        job_description = self.job.full_description or self.job.description
-
-        if not job_description:
-            print(f"\n{Colors.RED}Cannot generate: no job description available.{Colors.RESET}\n")
-            return
-
-        # Prefer comprehensive summary, fall back to combined docs
-        user_background = self.user.comprehensive_summary or combined_documents_as_string(self.user.combined_source_documents)
-
-        if not user_background:
-            print(f"\n{Colors.RED}Cannot generate: no source documents configured.{Colors.RESET}")
-            print(f"{Colors.DIM}Add your resume/CV in User Info first.{Colors.RESET}\n")
-            return
-
-        if not self.user.comprehensive_summary:
-            print(f"{Colors.YELLOW}Tip: Generate a comprehensive summary for better cover letters.{Colors.RESET}")
-
-        # Step 1: Generate cover letter topics (if not already present)
-        if not self.job.cover_letter_topics:
-            print(f"\n{Colors.CYAN}Analyzing job description...{Colors.RESET}")
-            topics = generate_cover_letter_topics(
-                job_description=job_description,
-                user_background=user_background
+        service = CoverLetterService(
+            job=self.job,
+            user=self.user,
+            on_progress=lambda msg, level: print(
+                f"{Colors.GREEN if level == 'success' else Colors.YELLOW if level == 'warning' else Colors.CYAN}{msg}{Colors.RESET}"
             )
-            if not topics:
-                print(f"{Colors.RED}Failed to analyze job description.{Colors.RESET}\n")
-                return
-            self.job.cover_letter_topics = topics
-            self.user.job_handler.save()
-            print(f"{Colors.GREEN}✓ Identified {len(topics)} key topics{Colors.RESET}")
-
-        # Step 2: Generate cover letter body from topics
-        print(f"{Colors.CYAN}Generating cover letter...{Colors.RESET}")
-
-        body = generate_cover_letter_body(
-            job_title=self.job.title,
-            company=self.job.company,
-            job_description=job_description,
-            user_background=user_background,
-            cover_letter_topics=self.job.cover_letter_topics
         )
 
-        if body:
-            self.job.cover_letter_body = body
-            self.user.job_handler.save()
+        result = service.generate()
+
+        if result.success:
             print(f"{Colors.GREEN}✓ Cover letter generated!{Colors.RESET}\n")
-            self.export_pdf_cover_letter()
         else:
-            print(f"{Colors.RED}Failed to generate cover letter.{Colors.RESET}\n")
+            print(f"{Colors.RED}{result.message}{Colors.RESET}\n")
 
     def add_questions(self):
         """Allow user to paste application questions."""
@@ -169,9 +206,7 @@ class JobOptions:
 
         # Add new questions (without answers)
         for q in new_questions:
-            self.job.questions.append({"question": q, "answer": ""})
-
-        self.user.job_handler.save()
+            self.job.add_question(q)
         print(f"\n{Colors.GREEN}✓ Added {len(new_questions)} questions{Colors.RESET}\n")
         input("Press Enter to continue...")
 
@@ -224,9 +259,8 @@ class JobOptions:
             results_map = {r["question"]: r["answer"] for r in results}
             for q in self.job.questions:
                 if q["question"] in results_map and results_map[q["question"]]:
-                    q["answer"] = results_map[q["question"]]
+                    self.job.update_question_answer(q["question"], results_map[q["question"]])
 
-            self.user.job_handler.save()
             print(f"{Colors.GREEN}✓ Generated {len(results)} answers!{Colors.RESET}\n")
         else:
             print(f"{Colors.RED}Failed to generate answers.{Colors.RESET}\n")
@@ -277,8 +311,57 @@ class JobOptions:
 
         if confirm:
             self.job.questions = []
-            self.user.job_handler.save()
             print(f"\n{Colors.GREEN}✓ Questions cleared.{Colors.RESET}\n")
+
+    def configure_job_writing_instructions(self):
+        """Configure job-specific cover letter writing instructions."""
+        while True:
+            clear_screen()
+            print_header(f"Writing Style: {self.job.title}")
+            
+            general_instructions = self.user.cover_letter_writing_instructions
+            print(f"  {Colors.DIM}General writing instructions:{Colors.RESET}\n")
+            for i, instruction in enumerate(general_instructions, 1):
+                print(f"  {Colors.GREEN}{i}.{Colors.RESET} {instruction}")
+            print()
+
+            job_instructions = self.job.writing_instructions
+            print(f"  {Colors.DIM}Specific instructions for this job:{Colors.RESET}\n")
+            if job_instructions:
+                for i, instruction in enumerate(job_instructions, 1):
+                    print(f"  {Colors.GREEN}{i}.{Colors.RESET} {instruction}")
+                print()
+            else:
+                print(f"  {Colors.DIM}None.{Colors.RESET}\n")
+
+            choices = [{"name": "Add job-specific instruction", "value": "add"}]
+            if job_instructions:
+                choices.append({"name": "Remove job-specific instruction", "value": "remove"})
+            choices.append({"name": "Done", "value": "done"})
+
+            action = inquirer.select(message="Action:", choices=choices).execute()
+
+            if action == "done":
+                break
+            elif action == "add":
+                instruction = inquirer.text(
+                    message="Enter instruction:",
+                    validate=lambda x: len(x.strip()) > 0
+                ).execute()
+                if instruction:
+                    job_instructions.append(instruction.strip())
+                    self.job.writing_instructions = job_instructions
+            elif action == "remove":
+                to_remove = inquirer.select(
+                    message="Select instruction to remove:",
+                    choices=[
+                        {"name": f"{i}. {inst[:60]}{'...' if len(inst) > 60 else ''}", "value": i-1}
+                        for i, inst in enumerate(job_instructions, 1)
+                    ] + [{"name": "Cancel", "value": None}],
+                ).execute()
+                if to_remove is not None:
+                    job_instructions.pop(to_remove)
+                    self.job.writing_instructions = job_instructions
 
     def edit_job_details(self):
         """Edit basic job details (company, title, location, link, addressee)."""
@@ -341,8 +424,7 @@ class JobOptions:
                 ).execute()
                 self.job.addressee = new_value if new_value else None
 
-            self.user.job_handler.save()
-
+    
     def edit_job_description(self):
         """Allow user to paste/edit the job description."""
         clear_screen()
@@ -380,7 +462,6 @@ class JobOptions:
         # Clear cover letter topics so they'll be regenerated with new description
         if self.job.cover_letter_topics:
             self.job.cover_letter_topics = []
-        self.user.job_handler.save()
         print(f"\n{Colors.GREEN}✓ Job description updated ({len(new_description)} characters){Colors.RESET}\n")
         input("Press Enter to continue...")
 
@@ -444,7 +525,13 @@ class JobOptions:
             else:
                 if self.job.cover_letter_body:
                     choices.append({"name": "📄 Retry PDF cover letter export", "value": "cover_letter_pdf_export"})
-            
+
+            # Writing style option
+            if self.job.writing_instructions:
+                choices.append({"name": "✏️ Edit writing style (custom)", "value": "writing_instructions"})
+            else:
+                choices.append({"name": "✏️ Set custom writing style", "value": "writing_instructions"})
+
             choices.append({"name": "← Back to jobs list", "value": "back"})
 
             print()
@@ -460,25 +547,21 @@ class JobOptions:
                 break
             elif action == "apply":
                 self.job.status = JobStatus.APPLIED
-                self.user.job_handler.save()
                 print(f"\n{Colors.GREEN}✓ Marked as applied!{Colors.RESET}\n")
                 time.sleep(1)
                 return
             elif action == "unapply":
                 self.job.status = JobStatus.IN_PROGRESS
-                self.user.job_handler.save()
                 print(f"\n{Colors.YELLOW}○ Marked as not applied.{Colors.RESET}\n")
                 time.sleep(1)
                 return
             elif action == "in_progress":
                 self.job.status = JobStatus.IN_PROGRESS
-                self.user.job_handler.save()
                 print(f"\n{Colors.CYAN}▶ Marked as in progress.{Colors.RESET}\n")
                 time.sleep(1)
                 return
             elif action == "pending":
                 self.job.status = JobStatus.PENDING
-                self.user.job_handler.save()
                 print(f"\n{Colors.YELLOW}○ Marked as pending.{Colors.RESET}\n")
                 time.sleep(1)
                 return
@@ -493,12 +576,9 @@ class JobOptions:
                 time.sleep(1)
                 return
             elif action == "open_link":
-                import webbrowser
                 webbrowser.open(self.job.link)
                 print(f"\n{Colors.DIM}Opening in browser...{Colors.RESET}\n")
             elif action == "google_job":
-                import webbrowser
-                import urllib.parse
                 query = urllib.parse.quote(f"careers {self.job.company} {self.job.title}")
                 webbrowser.open(f"https://www.google.com/search?q={query}")
                 print(f"\n{Colors.DIM}Opening Google search...{Colors.RESET}\n")
@@ -511,27 +591,28 @@ class JobOptions:
                 print(self.job.full_description)
                 print()
                 print_thick_line()
-                user_input = input()
+                input("Press Enter to continue...")
             elif action == "edit_description":
                 self.edit_job_description()
             elif action == "cover_letter_generate":
                 self.generate_cover_letter_for_job()
             elif action == "cover_letter_open":
-                import subprocess
-                subprocess.run(['open', str(self.job.cover_letter_pdf_path)])
-                print(f"\n{Colors.DIM}Opening PDF...{Colors.RESET}\n")
+                if open_file(str(self.job.cover_letter_pdf_path)):
+                    print(f"\n{Colors.DIM}Opening PDF...{Colors.RESET}\n")
+                else:
+                    print(f"\n{Colors.RED}Could not open PDF. File: {self.job.cover_letter_pdf_path}{Colors.RESET}\n")
             elif action == "cover_letter_text_clipboard":
-                import subprocess
                 letter_text = self.job.cover_letter_full_text(name_for_letter=self.user.name_with_credentials)
-                subprocess.run(['pbcopy'], input=letter_text.encode(), check=True)
-                print(f"\n{Colors.GREEN}✓ Cover letter copied to clipboard{Colors.RESET}\n")
+                if copy_text_to_clipboard(letter_text):
+                    print(f"\n{Colors.GREEN}✓ Cover letter copied to clipboard{Colors.RESET}\n")
+                else:
+                    print(f"\n{Colors.RED}Could not copy to clipboard{Colors.RESET}\n")
             elif action == "cover_letter_pdf_clipboard":
-                import subprocess
-                # Use osascript to copy file to clipboard on macOS
-                path = str(self.job.cover_letter_pdf_path)
-                script = f'set the clipboard to (read (POSIX file "{path}") as «class PDF »)'
-                subprocess.run(['osascript', '-e', script], check=True)
-                print(f"\n{Colors.GREEN}✓ PDF copied to clipboard{Colors.RESET}\n")
+                success, message = copy_pdf_to_clipboard(str(self.job.cover_letter_pdf_path))
+                if success:
+                    print(f"\n{Colors.GREEN}✓ {message}{Colors.RESET}\n")
+                else:
+                    print(f"\n{Colors.RED}{message}{Colors.RESET}\n")
             elif action == "cover_letter_pdf_export":
                 self.export_pdf_cover_letter()
             elif action == "add_questions":
@@ -542,7 +623,8 @@ class JobOptions:
                 self.generate_question_answers()
             elif action == "clear_questions":
                 self.clear_questions()
-       
+            elif action == "writing_instructions":
+                self.configure_job_writing_instructions()
 
 class UserOptions:
     """Menu for viewing and editing user information."""
@@ -564,7 +646,6 @@ class UserOptions:
         """Guided setup flow for first-time users."""
         clear_screen()
         print(f"{Colors.CYAN}{ASCII_ART_JOBSEARCH}{Colors.RESET}")
-        print(ASCII_ART_JOBSEARCH)
         print(f"  {Colors.DIM}Let's set up your profile to find the perfect job.{Colors.RESET}\n")
 
         # Step 1: Basic info
@@ -575,18 +656,7 @@ class UserOptions:
 
         # Step 2: Online presence
         print_section("Step 2: Online Presence")
-        self.configure_linkedin()
         self.configure_websites()
-
-        # Fetch online presence if URLs configured
-        has_online_urls = self.user.linkedin_extension or self.user.websites
-        if has_online_urls:
-            fetch = inquirer.confirm(
-                message="Fetch content from your online profiles?",
-                default=True
-            ).execute()
-            if fetch:
-                self.refresh_online_presence()
 
         # Step 3: Source documents
         print_section("Step 3: Source Documents (CV/Resume)")
@@ -603,7 +673,7 @@ class UserOptions:
                 default=True
             ).execute()
             if use_ai:
-                self.suggest_from_documents()
+                self.create_new_job_title_and_location_suggestions()
 
         self.configure_job_titles()
         self.configure_job_locations()
@@ -644,7 +714,7 @@ class UserOptions:
         print_section("Basic Information")
         print_field("Name", self.user.name_with_credentials if self.user.name else _not_set)
         print_field("Email", self.user.email if self.user.email else _not_set)
-        print_field("LinkedIn", self.user.linkedin_url if self.user.linkedin_extension else _not_set)
+        print_field("LinkedIn", self.user.linkedin_url if self.user.linkedin_url else _not_set)
         
         desired_title_list = ", ".join(f"'{s}'" for s in self.user.desired_job_titles) if self.user.desired_job_titles else _not_set
         desired_locations_list = ", ".join(f"'{s}'" for s in self.user.desired_job_locations) if self.user.desired_job_locations else _not_set
@@ -689,7 +759,7 @@ class UserOptions:
             else:
                 fetched_summary = f"Unable to fetch (attempted {readable_time})"
             print(f"  {Colors.GREEN}•{Colors.RESET} {hyperlink(site)} {Colors.DIM}{fetched_summary}{Colors.RESET}")
-        other_websites = [s for s in self.user.all_websites if s not in self.user.all_online_presence_sites]
+        other_websites = [s for s in self.user.websites if s not in self.user.all_online_presence_sites]
         for site in other_websites:
             print(f"  {Colors.GREEN}•{Colors.RESET} {hyperlink(site)} {Colors.DIM}Not fetched{Colors.RESET}")
             
@@ -714,7 +784,6 @@ class UserOptions:
             message="Your name:",
             default=self.user.name,
         ).execute()
-        self.user.save()
 
     def configure_email(self):
         """Configure user's email."""
@@ -729,7 +798,6 @@ class UserOptions:
             message="Your email:",
             default=self.user.email,
         ).execute()
-        self.user.save()
 
     def configure_credentials(self):
         """Configure user's credentials/titles."""
@@ -750,31 +818,10 @@ class UserOptions:
             choices=choices,
         ).execute()
         self.user.credentials = selected
-        self.user.save()
-
-    def configure_linkedin(self):
-        """Configure LinkedIn profile."""
-        clear_screen()
-        print_header("LinkedIn")
-        current = self.user.linkedin_extension
-        if current:
-            print(f"  {Colors.DIM}Current: {self.user.linkedin_url}{Colors.RESET}\n")
-        else:
-            print(f"  {Colors.DIM}Not configured{Colors.RESET}\n")
-
-        value = inquirer.text(
-            message="LinkedIn URL or username:",
-            default=current,
-        ).execute()
-        if value:
-            self.user.linkedin_extension = extract_url_slug(value)
-        else:
-            self.user.linkedin_extension = ""
-        self.user.save()
 
     def configure_websites(self):
         """Configure personal websites/portfolios."""
-        websites_before = set(self.user.all_websites)
+        websites_before = set(self.user.websites)
         while True:
             clear_screen()
             print_header("Websites")
@@ -807,23 +854,11 @@ class UserOptions:
                 if to_remove:
                     self.user.remove_website(to_remove)
 
-        # Check for LinkedIn URLs in websites
-        linkedin_urls = [s for s in self.user.websites if "linkedin.com" in s.lower()]
-        for url in linkedin_urls:
-            parsed = extract_url_slug(url)
-            if self.user.linkedin_extension:
-                self.user.remove_website(url)
-                print("Removed LinkedIn URL from websites (already configured)")
-            else:
-                self.user.linkedin_extension = parsed
-                self.user.remove_website(url)
-                print(f"Moved LinkedIn URL to dedicated field: {parsed}")
-        self.user.save()
-        
-        websites_after = set(self.user.all_websites)
-        
+
+        websites_after = set(self.user.websites)
+
         if websites_before != websites_after:
-            self.refresh_online_presence
+            self.refresh_online_presence()
 
     def configure_job_titles(self):
         """Configure desired job titles."""
@@ -896,7 +931,6 @@ class UserOptions:
             elif action == "regenerate_suggestions":
                 self._job_title_suggestions = []
                 self.create_new_job_title_and_location_suggestions()
-        self.user.save()
 
     def configure_job_locations(self):
         """Configure desired job locations."""
@@ -969,7 +1003,6 @@ class UserOptions:
             elif action == "regenerate_suggestions":
                 self._job_location_suggestions = []
                 self.create_new_job_title_and_location_suggestions()
-        self.user.save()
 
     def configure_source_documents(self):
         """Configure source document paths."""
@@ -1037,17 +1070,14 @@ class UserOptions:
                 self.user.add_source_document_path(selected_path)
                 print(f"Added: {selected_path}")
 
-        self.user.save()
         if self.user.source_document_paths:
             self.user.combined_source_documents = combine_documents(self.user.source_document_paths)
-            self.user.save()
-
+    
         if self.user.combined_source_documents:
             print("Generating summary of source documents...")
             summary = summarize_source_documents(combined_documents_as_string(self.user.combined_source_documents))
             if summary:
                 self.user.source_document_summary = summary
-                self.user.save()
                 print("Summary generated.")
             else:
                 print("Could not generate summary.")
@@ -1076,12 +1106,10 @@ class UserOptions:
                 validate=PathValidator(is_dir=True, message="Must be a directory")
             ).execute()
             self.user.cover_letter_output_dir = str(Path(new_path).resolve())
-            self.user.save()
             new_dir = self.user.cover_letter_output_dir
             print(f"\n{Colors.GREEN}Set output directory to: {new_dir}{Colors.RESET}")
         elif action == "reset":
             self.user.cover_letter_output_dir = ""
-            self.user.save()
             new_dir = self.user.cover_letter_output_dir
             print(f"\n{Colors.GREEN}Reset to default: {new_dir}{Colors.RESET}")
 
@@ -1089,10 +1117,56 @@ class UserOptions:
         if new_dir and old_dir != new_dir:
             self._move_cover_letter_pdfs(old_dir, new_dir)
 
+    def configure_writing_instructions(self):
+        """Configure cover letter writing style instructions."""
+        while True:
+            clear_screen()
+            print_header("Cover Letter Writing Style")
+
+            instructions = self.user.cover_letter_writing_instructions
+            print(f"  {Colors.DIM}Instructions:{Colors.RESET}\n")
+            for i, instruction in enumerate(instructions, 1):
+                print(f"  {Colors.GREEN}{i}.{Colors.RESET} {instruction}")
+            print()
+
+            choices = [
+                {"name": "Add instruction", "value": "add"}, 
+                {"name": "Remove instruction", "value": "remove"},
+                {"name": "Reset (use defaults)", "value": "reset"},
+                {"name": "Done", "value": "done"}
+            ]
+
+            action = inquirer.select(message="Action:", choices=choices).execute()
+
+            if action == "done":
+                break
+            elif action == "add":
+                instruction = inquirer.text(
+                    message="Enter instruction:",
+                    validate=lambda x: len(x.strip()) > 0
+                ).execute()
+                if instruction:
+                    instructions.append(instruction.strip())
+                    self.user.cover_letter_writing_instructions = instructions
+            elif action == "remove":
+                to_remove = inquirer.select(
+                    message="Select instruction to remove:",
+                    choices=[
+                        {"name": f"{i}. {inst[:60]}{'...' if len(inst) > 60 else ''}", "value": i-1}
+                        for i, inst in enumerate(instructions, 1)
+                    ] + [{"name": "Cancel", "value": None}],
+                ).execute()
+                if to_remove is not None:
+                    instructions.pop(to_remove)
+                    self.user.cover_letter_writing_instructions = instructions
+            elif action == "reset":
+                self.user.reset_cover_letter_writing_instructions()
+                print(f"\n{Colors.GREEN}Reset writing instructions: using defaults.{Colors.RESET}")
+                time.sleep(1)
+
     def _move_cover_letter_pdfs(self, old_dir: Path, new_dir: Path):
         """Move cover letter PDFs from old directory to new directory."""
-        import shutil
-
+        #TODO: This is business logic that should be in a separate module
         old_dir = Path(old_dir)
         new_dir = Path(new_dir)
 
@@ -1117,8 +1191,7 @@ class UserOptions:
                     print(f"{Colors.RED}Failed to move {pdf_path.name}: {e}{Colors.RESET}")
 
         if moved_count > 0:
-            self.user.job_handler.save()
-            print(f"{Colors.GREEN}✓ Moved {moved_count} cover letter PDF(s) to new directory{Colors.RESET}")
+                print(f"{Colors.GREEN}✓ Moved {moved_count} cover letter PDF(s) to new directory{Colors.RESET}")
 
     def configure_ai_credentials(self):
         """Configure AI backend credentials."""
@@ -1159,114 +1232,45 @@ class UserOptions:
                 print(f"{Colors.YELLOW}No API key provided, keeping previous setting.{Colors.RESET}")
                 return
 
-        self.user.save()
         print(f"AI credentials updated.")
 
     def refresh_source_documents(self):
         """Re-read source documents and regenerate summary."""
-        if not self.user.source_document_paths:
-            print("No source documents configured.")
-            return
+        service = UserProfileService(on_progress=lambda msg, level: print(msg))
+        result = service.refresh_source_documents(self.user)
 
-        print("Re-reading source documents...")
-        self.user.combined_source_documents = combine_documents(self.user.source_document_paths)
-        self.user.save()
-
-        if self.user.combined_source_documents:
-            print("Generating summary...")
-            summary = summarize_source_documents(combined_documents_as_string(self.user.combined_source_documents))
-            if summary:
-                self.user.source_document_summary = summary
-                self.user.save()
-                print("Summary updated.")
-            else:
-                print("Could not generate summary.")
+        if result.success:
+            print(f"{Colors.GREEN}✓ {result.message}{Colors.RESET}")
         else:
-            print("No content found in source documents.")
+            print(f"{Colors.RED}{result.message}{Colors.RESET}")
 
     def refresh_online_presence(self):
         """Fetch online presence and regenerate summary."""
-        urls = []
-        if self.user.linkedin_url:
-            urls.append(self.user.linkedin_url)
-        urls.extend(self.user.websites)
+        service = UserProfileService(on_progress=lambda msg, _: print(msg))
+        result = service.refresh_online_presence(self.user)
 
-        if not urls:
-            print("No online presence URLs configured.")
-            return
-
-        print("Fetching online presence...")
-        results = fetch_online_presence(urls)
-
-        self.user.clear_online_presence()
-        for entry in results:
-            self.user.add_online_presence(
-                site=entry["site"], 
-                content=entry["content"], 
-                time_fetched=entry["time_fetched"],
-                success=entry["success"]
-                )
-
-        if self.user.online_presence:
-            print("Generating summary...")
-            summary = summarize_online_presence(self.user.online_presence)
-            if summary:
-                self.user.online_presence_summary = summary
-            else:
-                print("Could not generate summary.")
-
-        self.user.save()
-        print(f"Fetched {len(results)} profiles.")
+        if result.success:
+            print(f"{Colors.GREEN}✓ {result.message}{Colors.RESET}")
+        else:
+            print(f"{Colors.RED}{result.message}{Colors.RESET}")
 
     def generate_job_title_and_location_suggestions(self):
         """Use Claude to suggest job titles and locations from source documents."""
-        user_background = self.user.comprehensive_summary or combined_documents_as_string(self.user.combined_source_documents)
-        if not user_background:
-            print("No source documents or comprehensive summary available.")
-            return
-        
-        existing_titles_list = sorted(set(self.user.desired_job_titles) | set(self._job_title_suggestions))
-        if existing_titles_list:
-            existing_titles = ", ".join(f"'{t}'" for t in existing_titles_list)
-        else:
-            existing_titles = "None."
-            
-        existing_locations_list = sorted(set(self.user.desired_job_locations) | set(self._job_location_suggestions))
-        if existing_locations_list:
-            existing_locations = ", ".join(f"'{t}'" for t in existing_locations_list)
-        else:
-            existing_locations = "None."
+        service = UserProfileService(on_progress=lambda msg, _: print(msg))
 
-        print("Analyzing your background to suggest job titles and locations...")
+        existing_titles = list(set(self.user.desired_job_titles) | set(self._job_title_suggestions))
+        existing_locations = list(set(self.user.desired_job_locations) | set(self._job_location_suggestions))
 
-        prompt = f"""Analyze the following CV/resume documents and suggest:
-1. A list of 5-10 job titles this person would be suitable for
-2. A list of 3-5 preferred job locations based on any hints in the documents. Example locations ["Manchester", "UK, Remote", "Europe, Remote"]
+        result = service.suggest_job_titles_and_locations(
+            self.user,
+            existing_titles=existing_titles,
+            existing_locations=existing_locations
+        )
 
-Respond ONLY with valid JSON in this exact format, no other text:
-{{"job_titles": ["Title 1", "Title 2"], "job_locations": ["Location 1", "Location 2"]}}
+        if not result.success:
+            print(f"{Colors.RED}{result.message}{Colors.RESET}")
 
-Existing titles: {existing_titles}
-Existing locations: {existing_locations}
-
-Background:
-{user_background}"""
-
-        success, response = run_claude(prompt, timeout=180)
-
-        if not success:
-            print(f"Claude analysis failed: {response}")
-            return
-
-        try:
-            json_str = extract_json_from_response(response)
-            suggestions = json.loads(json_str)
-            suggested_titles = suggestions.get("job_titles", [])
-            suggested_locations = suggestions.get("job_locations", [])
-            return {"titles": suggested_titles, "locations": suggested_locations}
-        except json.JSONDecodeError:
-            print("Could not parse Claude's response.")
-            return {"titles": [], "locations": []}
+        return {"titles": result.data.get("titles", []), "locations": result.data.get("locations", [])}
 
     def create_new_job_title_and_location_suggestions(self):
         results = self.generate_job_title_and_location_suggestions()
@@ -1279,86 +1283,18 @@ Background:
     
     def generate_comprehensive_summary(self):
         """Generate a comprehensive summary combining all user information."""
-        source_docs = combined_documents_as_string(self.user.combined_source_documents)
+        service = UserProfileService(on_progress=lambda msg, _: print(msg))
+        result = service.generate_comprehensive_summary(self.user)
 
-        online_content = ""
-        if self.user.online_presence:
-            online_parts = []
-            for entry in self.user.online_presence:
-                site = entry.get("site", "Unknown")
-                content = entry.get("content", "")
-                if content:
-                    online_parts.append(f"[{site}]\n{content}")
-            online_content = "\n\n".join(online_parts)
-
-        if not source_docs and not online_content:
-            print("No source documents or online presence data available.")
-            return
-
-        print("Generating comprehensive summary...")
-
-        prompt = f"""Create a comprehensive professional summary from the following information.
-
-SOURCE DOCUMENTS (CV, resume, etc.):
-{source_docs}
-
-ONLINE PRESENCE (LinkedIn, GitHub, portfolio):
-{online_content}
-
-Create a COMPREHENSIVE summary that includes:
-1. Professional summary/headline
-2. COMPLETE work experience with:
-   - Company names
-   - Job titles
-   - Employment dates (month/year to month/year)
-   - Key responsibilities and achievements
-3. COMPLETE academic background with:
-   - Institutions
-   - Degrees and fields of study
-   - Graduation dates (if available)
-   - Notable achievements (publications, awards)
-4. Technical skills (categorized)
-5. Certifications and credentials
-6. Languages (if mentioned)
-7. Notable projects or portfolio items
-
-IMPORTANT:
-- Include ALL dates mentioned (employment periods, graduation years, etc.)
-- Be precise with job titles and company names
-- Don't summarize away important details
-- Keep all quantified achievements (metrics, percentages, etc.)
-- Maintain chronological order for experience and education
-- If information is missing or unclear, note it rather than guessing
-
-Return the summary in a clean, structured markdown text format (not JSON). Begin with the heading '# PROFESSIONAL SUMMARY'.
-The summary should be thorough enough to write tailored cover letters without needing the original documents."""
-
-        success, response = run_claude(prompt, timeout=300)
-
-        if not success or not isinstance(response, str):
-            print(f"Failed to generate summary: {response}")
-            return
-        response = response.strip()
-        if not response:
-            print(f"Failed to generate summary")
-            return
-
-        # Truncate to start at "# PROFESSIONAL SUMMARY" if present (removes preamble)
-        heading = "# PROFESSIONAL SUMMARY"
-        if heading in response:
-            response = response[response.index(heading):]
-            
-        response = re.sub(r"(?<=[0-9A-Za-z])([.?!\"\']?)[^0-9A-Za-z]+$", r"\1", response)
-
-        self.user.comprehensive_summary = response
-        self.user.comprehensive_summary_generated_at = datetime_iso()
-        self.user.save()
-        print("Comprehensive summary generated and saved.")
-
-        preview = self.user.comprehensive_summary[:500]
-        if len(self.user.comprehensive_summary) > 500:
-            preview += "..."
-        print(f"\nPreview:\n{preview}")
+        if result.success:
+            print(f"{Colors.GREEN}✓ {result.message}{Colors.RESET}")
+            if result.data and result.data.get("preview"):
+                preview = result.data["preview"]
+                if len(self.user.comprehensive_summary) > 500:
+                    preview += "..."
+                print(f"\nPreview:\n{preview}")
+        else:
+            print(f"{Colors.RED}{result.message}{Colors.RESET}")
 
     def view_comprehensive_summary(self):
         """View the full comprehensive summary."""
@@ -1418,55 +1354,13 @@ The summary should be thorough enough to write tailored cover letters without ne
 
     def create_search_queries(self):
         """Create search queries from the user's information."""
-        if not self.user.desired_job_titles:
-            print("No job titles configured. Configure job titles first.")
-            return
+        service = UserProfileService(on_progress=lambda msg, _: print(msg))
+        result = service.create_search_queries(self.user)
 
-        if not self.user.desired_job_locations:
-            print("No job locations configured. Configure job locations first.")
-            return
-
-        print("Generating search queries...")
-
-        user_background = self.user.comprehensive_summary or combined_documents_as_string(self.user.combined_source_documents)
-
-        prompt = f"""Based on this job seeker's profile, create 30 effective job search queries.
-
-Job titles of interest: {self.user.desired_job_titles}
-Preferred locations: {self.user.desired_job_locations}
-
-Background summary:
-{user_background}
-
-Create varied queries using:
-- Different job title variations and related roles
-- Different location combinations
-- Site-specific searches (site:linkedin.com/jobs, site:lever.co, site:greenhouse.io, site:weworkremotely.com, site:jobs.ashbyhq.com)
-- Industry/tech stack keywords relevant to their background
-- Mix of specific and broader searches
-
-Return ONLY a JSON array of 30 query strings, no other text:
-["query 1", "query 2", ...]"""
-
-        success, response = run_claude(prompt, timeout=180)
-
-        if not success:
-            print(f"Failed to generate queries: {response}")
-            return
-
-        try:
-            json_str = extract_json_from_response(response)
-            queries = json.loads(json_str)
-
-            if not isinstance(queries, list):
-                print("Invalid response format from Claude.")
-                return
-
-            self.user.query_handler.save(queries)
-            print(f"Created {len(queries)} search queries.")
-
-        except json.JSONDecodeError:
-            print("Could not parse Claude's response as JSON.")
+        if result.success:
+            print(f"{Colors.GREEN}✓ {result.message}{Colors.RESET}")
+        else:
+            print(f"{Colors.RED}{result.message}{Colors.RESET}")
 
     def user_info_menu(self):
         """Show user info and provide edit options."""
@@ -1483,12 +1377,12 @@ Return ONLY a JSON array of 30 query strings, no other text:
                     {"name": "Edit name", "value": self.configure_name},
                     {"name": "Edit email", "value": self.configure_email},
                     {"name": "Edit credentials", "value": self.configure_credentials},
-                    {"name": "Edit LinkedIn", "value": self.configure_linkedin},
                     {"name": "Edit websites", "value": self.configure_websites},
                     {"name": "Edit source documents (CV etc.)", "value": self.configure_source_documents},
                     {"name": "Edit job titles", "value": self.configure_job_titles},
                     {"name": "Edit job locations", "value": self.configure_job_locations},
                     {"name": "Edit cover letter output directory", "value": self.configure_cover_letter_output_dir},
+                    {"name": "Edit cover letter writing style", "value": self.configure_writing_instructions},
                     {"name": "Edit AI credentials", "value": self.configure_ai_credentials},
                     {"name": "─" * 30, "value": None, "disabled": ""},
                     {"name": "Refresh source documents", "value": self.refresh_source_documents},
@@ -1728,7 +1622,6 @@ Return ONLY a JSON array of 30 query strings, no other text:
                 location=location or "",
                 full_description=full_description or "",
             )
-            self.user.job_handler.save()
             print(f"\n{Colors.GREEN}✓ Added: {job.title} at {job.company}{Colors.RESET}\n")
 
             # Open the job details menu
@@ -1775,7 +1668,6 @@ Return ONLY a JSON array of 30 query strings, no other text:
                 link=link or "",
                 location=location or "",
             )
-            self.user.job_handler.save()
             print(f"\n{Colors.GREEN}✓ Added: {job.title} at {job.company}{Colors.RESET}\n")
 
             # Open the job details menu to add more info

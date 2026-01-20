@@ -1,12 +1,16 @@
+from .database import Database
+from .globals import DATABASE
 from .user_data import User
-from .query_data import SearchQueries, SearchQuery
-from .jobs_data import Jobs, Job, JobStatus
+from .queries import Query, QueryHandler
+from .jobs import Job, JobHandler, JobStatus
 
 __all__ = [
+    "Database",
+    "DATABASE",
     "User",
-    "SearchQueries",
-    "SearchQuery",
-    "Jobs",
+    "Query",
+    "QueryHandler",
     "Job",
+    "JobHandler",
     "JobStatus",
-    ]
+]
