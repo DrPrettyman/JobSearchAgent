@@ -28,28 +28,26 @@ class ServiceResult:
 class UserProfileService:
     """Service for user profile management operations."""
 
-    def __init__(self, on_progress: ProgressCallbackType = print_progress):
+    def __init__(self, user: User, on_progress: ProgressCallbackType = print_progress):
+        self.user = user
         self.on_progress = on_progress
 
-    def refresh_source_documents(self, user: User) -> ServiceResult:
+    def refresh_source_documents(self) -> ServiceResult:
         """Re-read source documents and regenerate summary.
-
-        Args:
-            user: The user whose documents to refresh
 
         Returns:
             ServiceResult with success status
         """
-        if not user.source_document_paths:
+        if not self.user.source_document_paths:
             return ServiceResult(
                 success=False,
                 message="No source documents configured"
             )
 
         self.on_progress("Re-reading source documents...", "info")
-        user.combined_source_documents = combine_documents(user.source_document_paths)
+        self.user.combined_source_documents = combine_documents(self.user.source_document_paths)
 
-        if not user.combined_source_documents:
+        if not self.user.combined_source_documents:
             return ServiceResult(
                 success=False,
                 message="No content found in source documents"
@@ -57,11 +55,11 @@ class UserProfileService:
 
         self.on_progress("Generating summary...", "info")
         summary = summarize_source_documents(
-            combined_documents_as_string(user.combined_source_documents)
+            combined_documents_as_string(self.user.combined_source_documents)
         )
 
         if summary:
-            user.source_document_summary = summary
+            self.user.source_document_summary = summary
             return ServiceResult(
                 success=True,
                 message="Source documents refreshed and summary updated"
@@ -72,16 +70,13 @@ class UserProfileService:
                 message="Could not generate summary"
             )
 
-    def refresh_online_presence(self, user: User) -> ServiceResult:
+    def refresh_online_presence(self) -> ServiceResult:
         """Fetch online presence and regenerate summary.
-
-        Args:
-            user: The user whose online presence to refresh
 
         Returns:
             ServiceResult with success status and count of profiles fetched
         """
-        urls = user.websites
+        urls = self.user.websites
         if not urls:
             return ServiceResult(
                 success=False,
@@ -93,20 +88,20 @@ class UserProfileService:
         from online_presence import fetch_online_presence
         results = fetch_online_presence(urls, on_progress=self.on_progress)
 
-        user.clear_online_presence()
+        self.user.clear_online_presence()
         for entry in results:
-            user.add_online_presence(
+            self.user.add_online_presence(
                 site=entry["site"],
                 content=entry["content"],
                 time_fetched=entry["time_fetched"],
                 success=entry["success"]
             )
 
-        if user.online_presence:
+        if self.user.online_presence:
             self.on_progress("Generating summary...", "info")
-            summary = summarize_online_presence(user.online_presence)
+            summary = summarize_online_presence(self.user.online_presence)
             if summary:
-                user.online_presence_summary = summary
+                self.user.online_presence_summary = summary
             else:
                 self.on_progress("Could not generate summary", "warning")
 
@@ -116,21 +111,18 @@ class UserProfileService:
             data={"profiles_fetched": len(results)}
         )
 
-    def generate_comprehensive_summary(self, user: User) -> ServiceResult:
+    def generate_comprehensive_summary(self) -> ServiceResult:
         """Generate a comprehensive summary combining all user information.
-
-        Args:
-            user: The user to generate summary for
 
         Returns:
             ServiceResult with success status
         """
-        source_docs = combined_documents_as_string(user.combined_source_documents)
+        source_docs = combined_documents_as_string(self.user.combined_source_documents)
 
         online_content = ""
-        if user.online_presence:
+        if self.user.online_presence:
             online_parts = []
-            for entry in user.online_presence:
+            for entry in self.user.online_presence:
                 site = entry.get("site", "Unknown")
                 content = entry.get("content", "")
                 if content:
@@ -204,8 +196,8 @@ The summary should be thorough enough to write tailored cover letters without ne
         # Clean up trailing content
         response = re.sub(r"(?<=[0-9A-Za-z])([.?!\"\']?)[^0-9A-Za-z]+$", r"\1", response)
 
-        user.comprehensive_summary = response
-        user.comprehensive_summary_generated_at = datetime_iso()
+        self.user.comprehensive_summary = response
+        self.user.comprehensive_summary_generated_at = datetime_iso()
 
         return ServiceResult(
             success=True,
@@ -215,14 +207,12 @@ The summary should be thorough enough to write tailored cover letters without ne
 
     def suggest_job_titles_and_locations(
         self,
-        user: User,
         existing_titles: list[str] | None = None,
         existing_locations: list[str] | None = None
     ) -> ServiceResult:
         """Use Claude to suggest job titles and locations from user background.
 
         Args:
-            user: The user to analyze
             existing_titles: Already configured titles to avoid duplicating
             existing_locations: Already configured locations to avoid duplicating
 
@@ -230,8 +220,8 @@ The summary should be thorough enough to write tailored cover letters without ne
             ServiceResult with suggested titles and locations in data
         """
         user_background = (
-            user.comprehensive_summary
-            or combined_documents_as_string(user.combined_source_documents)
+            self.user.comprehensive_summary
+            or combined_documents_as_string(self.user.combined_source_documents)
         )
         if not user_background:
             return ServiceResult(
@@ -290,22 +280,19 @@ Background:
                 data={"titles": [], "locations": []}
             )
 
-    def create_search_queries(self, user: User) -> ServiceResult:
+    def create_search_queries(self, num_queries: int = 30) -> ServiceResult:
         """Generate search queries based on user's job preferences.
-
-        Args:
-            user: The user to create queries for
 
         Returns:
             ServiceResult with count of queries created
         """
-        if not user.desired_job_titles:
+        if not self.user.desired_job_titles:
             return ServiceResult(
                 success=False,
                 message="No job titles configured"
             )
 
-        if not user.desired_job_locations:
+        if not self.user.desired_job_locations:
             return ServiceResult(
                 success=False,
                 message="No job locations configured"
@@ -314,19 +301,19 @@ Background:
         self.on_progress("Generating search queries...", "info")
 
         user_background = (
-            user.comprehensive_summary
-            or combined_documents_as_string(user.combined_source_documents)
+            self.user.comprehensive_summary
+            or combined_documents_as_string(self.user.combined_source_documents)
         )
 
         search_instructions_block = ""
-        if user.search_instructions:
-            instructions_text = "\n".join(f"- {inst}" for inst in user.search_instructions)
+        if self.user.search_instructions:
+            instructions_text = "\n".join(f"- {inst}" for inst in self.user.search_instructions)
             search_instructions_block = f"\nSpecial instructions from the job seeker:\n{instructions_text}\n"
 
-        prompt = f"""Based on this job seeker's profile, create 30 effective job search queries.
+        prompt = f"""Based on this job seeker's profile, create {num_queries} effective job search queries.
 
-Job titles of interest: {user.desired_job_titles}
-Preferred locations: {user.desired_job_locations}
+Job titles of interest: {self.user.desired_job_titles}
+Preferred locations: {self.user.desired_job_locations}
 
 Background summary:
 {user_background}
@@ -338,7 +325,7 @@ Create varied queries using:
 - Industry/tech stack keywords relevant to their background
 - Mix of specific and broader searches
 
-Return ONLY a JSON array of 30 query strings, no other text:
+Return ONLY a JSON array of {num_queries} query strings, no other text:
 ["query 1", "query 2", ...]"""
 
         success, response = run_claude(prompt, timeout=180)
@@ -359,7 +346,7 @@ Return ONLY a JSON array of 30 query strings, no other text:
                     message="Invalid response format"
                 )
 
-            user.query_handler.save(queries)
+            self.user.query_handler.save(queries)
             return ServiceResult(
                 success=True,
                 message=f"Created {len(queries)} search queries",

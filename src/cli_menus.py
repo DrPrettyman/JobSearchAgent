@@ -1,6 +1,7 @@
 """CLI menu functions for JobSearch application."""
 
 import os
+import re
 import platform
 import shutil
 import subprocess
@@ -633,13 +634,26 @@ class UserOptions:
         self.user = user
         self._job_title_suggestions = []
         self._job_location_suggestions = []
-        
+
         self._job_searcher = None
+        self._user_profile_service = None
+
+    @property
+    def user_profile_service(self):
+        if self._user_profile_service is None:
+            self._user_profile_service = UserProfileService(
+                self.user,
+                on_progress=lambda msg, _: print(msg)
+            )
+        return self._user_profile_service
         
     @property
     def job_searcher(self):
         if self._job_searcher is None:
-            self._job_searcher = JobSearcher(user=self.user)
+            self._job_searcher = JobSearcher(
+                user=self.user,
+                on_progress=lambda msg, _: print(msg)
+            )
         return self._job_searcher
         
     def first_time_setup(self):
@@ -996,7 +1010,8 @@ class UserOptions:
             action = inquirer.select(
                 message="Action:",
                 choices=[
-                    {"name": "Add a file or folder", "value": "add"},
+                    {"name": "Add a file", "value": "add_file"},
+                    {"name": "Add a folder", "value": "add_folder"},
                     {"name": "Remove a path", "value": "remove"},
                     {"name": "Clear all paths", "value": "clear"},
                     {"name": "← Done", "value": "done"},
@@ -1019,30 +1034,22 @@ class UserOptions:
                 if to_remove:
                     self.user.remove_source_document_path(to_remove)
                     print(f"Removed: {to_remove}")
-            elif action == "add":
-                add_type = inquirer.select(
-                    message="What do you want to add?",
-                    choices=[
-                        {"name": "A specific file", "value": "file"},
-                        {"name": "A folder (all files inside)", "value": "folder"},
-                    ],
+            elif action == "add_file":
+                selected_path = inquirer.filepath(
+                    message="Select file:",
+                    default=str(Path.home()),
+                    validate=PathValidator(is_file=True, message="Must be a file")
                 ).execute()
-
-                if add_type == "folder":
-                    selected_path = inquirer.filepath(
-                        message="Select folder:",
-                        default=str(Path.home()),
-                        validate=PathValidator(is_dir=True, message="Must be a directory")
-                    ).execute()
-                    selected_path = str(Path(selected_path).resolve()) + "/*"
-                else:
-                    selected_path = inquirer.filepath(
-                        message="Select file:",
-                        default=str(Path.home()),
-                        validate=PathValidator(is_file=True, message="Must be a file")
-                    ).execute()
-                    selected_path = str(Path(selected_path).resolve())
-
+                selected_path = str(Path(selected_path).resolve())
+                self.user.add_source_document_path(selected_path)
+                print(f"Added: {selected_path}")
+            elif action == "add_folder":
+                selected_path = inquirer.filepath(
+                    message="Select folder:",
+                    default=str(Path.home()),
+                    validate=PathValidator(is_dir=True, message="Must be a directory")
+                ).execute()
+                selected_path = str(Path(selected_path).resolve()) + "/*"
                 self.user.add_source_document_path(selected_path)
                 print(f"Added: {selected_path}")
 
@@ -1270,8 +1277,7 @@ class UserOptions:
 
     def refresh_source_documents(self):
         """Re-read source documents and regenerate summary."""
-        service = UserProfileService(on_progress=lambda msg, level: print(msg))
-        result = service.refresh_source_documents(self.user)
+        result = self.user_profile_service.refresh_source_documents()
 
         if result.success:
             print(f"{Colors.GREEN}✓ {result.message}{Colors.RESET}")
@@ -1280,8 +1286,7 @@ class UserOptions:
 
     def refresh_online_presence(self):
         """Fetch online presence and regenerate summary."""
-        service = UserProfileService(on_progress=lambda msg, _: print(msg))
-        result = service.refresh_online_presence(self.user)
+        result = self.user_profile_service.refresh_online_presence()
 
         if result.success:
             print(f"{Colors.GREEN}✓ {result.message}{Colors.RESET}")
@@ -1290,13 +1295,10 @@ class UserOptions:
 
     def generate_job_title_and_location_suggestions(self):
         """Use Claude to suggest job titles and locations from source documents."""
-        service = UserProfileService(on_progress=lambda msg, _: print(msg))
-
         existing_titles = list(set(self.user.desired_job_titles) | set(self._job_title_suggestions))
         existing_locations = list(set(self.user.desired_job_locations) | set(self._job_location_suggestions))
 
-        result = service.suggest_job_titles_and_locations(
-            self.user,
+        result = self.user_profile_service.suggest_job_titles_and_locations(
             existing_titles=existing_titles,
             existing_locations=existing_locations
         )
@@ -1317,8 +1319,7 @@ class UserOptions:
     
     def generate_comprehensive_summary(self):
         """Generate a comprehensive summary combining all user information."""
-        service = UserProfileService(on_progress=lambda msg, _: print(msg))
-        result = service.generate_comprehensive_summary(self.user)
+        result = self.user_profile_service.generate_comprehensive_summary()
 
         if result.success:
             print(f"{Colors.GREEN}✓ {result.message}{Colors.RESET}")
@@ -1386,10 +1387,9 @@ class UserOptions:
 
         input("Press Enter to continue...")
 
-    def create_search_queries(self):
+    def create_search_queries(self, num_queries: int = 30):
         """Create search queries from the user's information."""
-        service = UserProfileService(on_progress=lambda msg, _: print(msg))
-        result = service.create_search_queries(self.user)
+        result = self.user_profile_service.create_search_queries(num_queries=num_queries)
 
         if result.success:
             print(f"{Colors.GREEN}✓ {result.message}{Colors.RESET}")
@@ -1439,6 +1439,15 @@ class UserOptions:
         while True:
             clear_screen()
             print_header("Search for Jobs")
+            
+            print_section("Search Criteria")
+            print_inline_list("Desired Job Titles", self.user.desired_job_titles)
+            print_inline_list("Desired Job Locations", self.user.desired_job_locations)
+            if self.user.search_instructions:
+                print_numbered_list("Search Instructions", self.user.search_instructions)
+            else:
+                print(f"  {Colors.DIM}Search Instructions: None{Colors.RESET}")
+            print()
 
             num_queries = len(self.user.query_handler)
             num_jobs = len(self.user.job_handler)
@@ -1467,12 +1476,21 @@ class UserOptions:
             print()
 
             num_pending = self.user.job_handler.number_pending
-            choices=[
-                    {"name": f"Search using all queries ({num_queries})", "value": "search_all"},
-                    {"name": "Search using selected queries", "value": "search_selected"},
-                    {"name": "Review queries", "value": "review"},
-                    {"name": "Generate new queries", "value": "generate"}
-                ]
+            choices = [
+                {"name": f"Search using all queries ({num_queries})", "value": "search_all"},
+                {"name": "Search using selected queries", "value": "search_selected"},
+                {"name": "─" * 30, "value": None, "disabled": ""},
+                {"name": "Review queries", "value": "review"},
+                {"name": "Generate new queries:", "value": None, "disabled": ""},
+                {"name": " "*4 + "—  5 new queries", "value": "generate_05"},
+                {"name": " "*4 + "— 10 new queries", "value": "generate_10"},
+                {"name": " "*4 + "— 20 new queries", "value": "generate_20"},
+                {"name": " "*4 + "— 30 new queries", "value": "generate_30"},
+                {"name": "─" * 30, "value": None, "disabled": ""},
+                {"name": "Edit job titles", "value": "edit_titles"},
+                {"name": "Edit job locations", "value": "edit_locations"},
+                {"name": "Edit search instructions", "value": "edit_instructions"},
+            ]
 
             if num_pending:
                 choices.append({"name": f"○ View pending jobs ({num_pending})", "value": "jobs_pending"})
@@ -1488,8 +1506,25 @@ class UserOptions:
                 return
             elif action == "review":
                 self.review_queries()
-            elif action == "generate":
-                self.create_search_queries()
+            elif m := re.match(r"generate_(\d\d)", action):
+                num_new = int(m.group(1))
+                existing_count = len(self.user.query_handler)
+                if existing_count > 0:
+                    keep_existing = inquirer.confirm(
+                        message=f"Keep existing {existing_count} queries? (No = replace them)",
+                        default=True
+                    ).execute()
+                    if not keep_existing:
+                        all_ids = [q.id for q in self.user.query_handler]
+                        self.user.query_handler.remove(all_ids)
+                        print(f"{Colors.DIM}Cleared {existing_count} existing queries.{Colors.RESET}")
+                self.create_search_queries(num_queries=num_new)
+            elif action == "edit_titles":
+                self.configure_job_titles()
+            elif action == "edit_locations":
+                self.configure_job_locations()
+            elif action == "edit_instructions":
+                self.configure_search_instructions()
             elif action == "jobs_pending":
                 self.jobs_menu(job_type="pending")
             elif action == "search_all":

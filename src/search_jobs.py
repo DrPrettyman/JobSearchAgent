@@ -323,7 +323,7 @@ class JobSearcher:
         jobs_created = 0
 
         for i, query in enumerate(queries, 1):
-            self.on_progress(f"\n[{i}/{len(queries)}] {query.query[:60]}...", "info")
+            self.on_progress(f"\n[{i}/{len(queries)}] {query.query}", "info")
             jobs_found = search_query(
                 query.query,
                 on_progress=self.on_progress,
