@@ -105,14 +105,19 @@ from InquirerPy.validator import PathValidator
 from data_handlers import User, Job, JobStatus
 from cli_utils import (
     Colors,
+    DEFAULT_WIDTH,
     ASCII_ART_JOBSEARCH,
     clear_screen,
     print_header,
     print_section,
     print_field,
     print_list,
+    print_numbered_list,
+    print_inline_list,
+    print_status_summary,
     print_box,
     print_thick_line,
+    text_to_lines,
     hyperlink,
     display_job_card,
     display_job_detail
@@ -174,9 +179,8 @@ class JobOptions:
         print_header(f"Add Questions: {self.job.title} at {self.job.company}")
 
         if self.job.questions:
-            print(f"\n{Colors.CYAN}Current questions:{Colors.RESET}")
-            for i, q in enumerate(self.job.questions, 1):
-                print(f"  {Colors.DIM}{i}. {q['question'][:60]}...{Colors.RESET}" if len(q['question']) > 60 else f"  {Colors.DIM}{i}. {q['question']}{Colors.RESET}")
+            print()
+            print_numbered_list("Current questions", [q['question'] for q in self.job.questions])
             print()
 
         print(f"{Colors.YELLOW}Paste your application questions below (one per line).{Colors.RESET}")
@@ -278,18 +282,16 @@ class JobOptions:
             return
 
         for i, qa in enumerate(self.job.questions, 1):
-            print(f"\n{Colors.BOLD}{Colors.CYAN}Q{i}: {qa['question']}{Colors.RESET}")
+            # Wrap question text
+            q_lines = text_to_lines(qa['question'], width=DEFAULT_WIDTH - 6)
+            print(f"\n{Colors.BOLD}{Colors.CYAN}Q{i}: {q_lines[0]}{Colors.RESET}")
+            for q_line in q_lines[1:]:
+                print(f"    {Colors.BOLD}{Colors.CYAN}{q_line}{Colors.RESET}")
+
             if qa.get("answer"):
                 print(f"{Colors.DIM}{'─' * 40}{Colors.RESET}")
                 # Word wrap the answer
-                words = qa["answer"].split()
-                line = ""
-                for word in words:
-                    if len(line) + len(word) > 76:
-                        print(f"  {line}")
-                        line = ""
-                    line += word + " "
-                if line.strip():
+                for line in text_to_lines(qa["answer"], width=DEFAULT_WIDTH - 4):
                     print(f"  {line}")
             else:
                 print(f"  {Colors.YELLOW}(no answer generated){Colors.RESET}")
@@ -320,19 +322,12 @@ class JobOptions:
             print_header(f"Writing Style: {self.job.title}")
             
             general_instructions = self.user.cover_letter_writing_instructions
-            print(f"  {Colors.DIM}General writing instructions:{Colors.RESET}\n")
-            for i, instruction in enumerate(general_instructions, 1):
-                print(f"  {Colors.GREEN}{i}.{Colors.RESET} {instruction}")
+            print_numbered_list("General writing instructions", general_instructions)
             print()
 
             job_instructions = self.job.writing_instructions
-            print(f"  {Colors.DIM}Specific instructions for this job:{Colors.RESET}\n")
-            if job_instructions:
-                for i, instruction in enumerate(job_instructions, 1):
-                    print(f"  {Colors.GREEN}{i}.{Colors.RESET} {instruction}")
-                print()
-            else:
-                print(f"  {Colors.DIM}None.{Colors.RESET}\n")
+            print_numbered_list("Specific instructions for this job", job_instructions)
+            print()
 
             choices = [{"name": "Add job-specific instruction", "value": "add"}]
             if job_instructions:
@@ -432,7 +427,12 @@ class JobOptions:
 
         if self.job.full_description:
             print(f"\n{Colors.CYAN}Current description:{Colors.RESET}")
-            print(f"{Colors.DIM}{self.job.full_description[:500]}{'...' if len(self.job.full_description) > 500 else ''}{Colors.RESET}\n")
+            preview = self.job.full_description[:500]
+            if len(self.job.full_description) > 500:
+                preview += "..."
+            for line in text_to_lines(preview, width=DEFAULT_WIDTH - 2):
+                print(f"{Colors.DIM}{line}{Colors.RESET}")
+            print()
 
         print(f"{Colors.YELLOW}Paste the job description below.{Colors.RESET}")
         print(f"{Colors.DIM}Type 'DONE' on a new line when finished, or 'CANCEL' to abort.{Colors.RESET}\n")
@@ -716,10 +716,8 @@ class UserOptions:
         print_field("Email", self.user.email if self.user.email else _not_set)
         print_field("LinkedIn", self.user.linkedin_url if self.user.linkedin_url else _not_set)
         
-        desired_title_list = ", ".join(f"'{s}'" for s in self.user.desired_job_titles) if self.user.desired_job_titles else _not_set
-        desired_locations_list = ", ".join(f"'{s}'" for s in self.user.desired_job_locations) if self.user.desired_job_locations else _not_set
-        print_field("Desired Job Titles", desired_title_list)
-        print_field("Desired Job Locations", desired_locations_list)
+        print_inline_list("Desired Job Titles", self.user.desired_job_titles)
+        print_inline_list("Desired Job Locations", self.user.desired_job_locations)
 
         # Comprehensive Summary field
         if self.user.comprehensive_summary:
@@ -804,10 +802,8 @@ class UserOptions:
         clear_screen()
         print_header("Credentials")
         current = self.user.credentials
-        if current:
-            print(f"  {Colors.DIM}Current: {', '.join(current)}{Colors.RESET}\n")
-        else:
-            print(f"  {Colors.DIM}No credentials set{Colors.RESET}\n")
+        print_inline_list("Current", current, quote=False)
+        print()
 
         choices = [
             {"name": cred, "value": cred, "enabled": cred in current}
@@ -826,12 +822,8 @@ class UserOptions:
             clear_screen()
             print_header("Websites")
             sites = self.user.websites
-            if sites:
-                for site in sites:
-                    print(f"  {Colors.GREEN}•{Colors.RESET} {site}")
-                print()
-            else:
-                print(f"  {Colors.DIM}No websites configured{Colors.RESET}\n")
+            print_list("Configured websites", sites)
+            print()
 
             choices = [{"name": "Add a website", "value": "add"}]
             if sites:
@@ -866,17 +858,11 @@ class UserOptions:
             clear_screen()
             print_header("Desired Job Titles")
             titles = self.user.desired_job_titles
-            if titles:
-                for t in titles:
-                    print(f"  {Colors.GREEN}•{Colors.RESET} {t}")
-                print()
-            else:
-                print(f"  {Colors.DIM}No job titles configured{Colors.RESET}\n")
+            print_list("Current titles", titles)
+            print()
                 
             if self._job_title_suggestions:
-                print_section("Suggested Job Titles")
-                suggestions = ", ".join(f"'{s}'" for s in self._job_title_suggestions)
-                print(f"  {Colors.YELLOW}{suggestions}{Colors.RESET}")
+                print_inline_list("Suggested Job Titles", self._job_title_suggestions)
                 print()
                 
             choices = [
@@ -938,17 +924,11 @@ class UserOptions:
             clear_screen()
             print_header("Desired Job Locations")
             locations = self.user.desired_job_locations
-            if locations:
-                for loc in locations:
-                    print(f"  {Colors.GREEN}•{Colors.RESET} {loc}")
-                print()
-            else:
-                print(f"  {Colors.DIM}No job locations configured{Colors.RESET}\n")
+            print_list("Current locations", locations)
+            print()
 
             if self._job_location_suggestions:
-                print_section("Suggested Locations")
-                suggestions = ", ".join(f"'{s}'"for s in self._job_location_suggestions)
-                print(f"  {Colors.YELLOW}{suggestions}{Colors.RESET}")
+                print_inline_list("Suggested Locations", self._job_location_suggestions)
                 print()
                 
             choices = [
@@ -1010,12 +990,8 @@ class UserOptions:
             clear_screen()
             print_header("Source Documents")
             paths = self.user.source_document_paths
-            if paths:
-                for p in paths:
-                    print(f"  {Colors.GREEN}•{Colors.RESET} {p}")
-                print()
-            else:
-                print(f"  {Colors.DIM}No source documents configured{Colors.RESET}\n")
+            print_list("Document paths", paths)
+            print()
 
             action = inquirer.select(
                 message="Action:",
@@ -1124,9 +1100,7 @@ class UserOptions:
             print_header("Cover Letter Writing Style")
 
             instructions = self.user.cover_letter_writing_instructions
-            print(f"  {Colors.DIM}Instructions:{Colors.RESET}\n")
-            for i, instruction in enumerate(instructions, 1):
-                print(f"  {Colors.GREEN}{i}.{Colors.RESET} {instruction}")
+            print_numbered_list("Instructions", instructions)
             print()
 
             choices = [
@@ -1526,7 +1500,13 @@ class UserOptions:
                 input("Press Enter to continue...")
                 return
 
-            print(f"  {Colors.GREEN}✓ {self.user.job_handler.number_applied} applied{Colors.RESET}  •  {Colors.CYAN}▶ {self.user.job_handler.number_in_progress} in progress{Colors.RESET}  •  {Colors.YELLOW}○ {self.user.job_handler.number_pending} pending{Colors.RESET}  •  {Colors.RED}✗ {self.user.job_handler.number_discarded} discarded{Colors.RESET}\n")
+            print_status_summary(
+                applied=self.user.job_handler.number_applied,
+                in_progress=self.user.job_handler.number_in_progress,
+                pending=self.user.job_handler.number_pending,
+                discarded=self.user.job_handler.number_discarded
+            )
+            print()
 
             # Display jobs as cards
             for i, job in enumerate(jobs, 1):
@@ -1699,7 +1679,13 @@ class UserOptions:
             num_total = len(self.user.job_handler)
 
             if num_total:
-                print(f"  {Colors.GREEN}✓ {num_applied} applied{Colors.RESET}  •  {Colors.CYAN}▶ {num_in_progress} in progress{Colors.RESET}  •  {Colors.YELLOW}○ {num_pending} pending{Colors.RESET}  •  {Colors.RED}✗ {num_discarded} discarded{Colors.RESET}\n")
+                print_status_summary(
+                    applied=num_applied,
+                    in_progress=num_in_progress,
+                    pending=num_pending,
+                    discarded=num_discarded
+                )
+                print()
 
             choices=[
                 {"name": "View/Edit User Info", "value": "user"},
