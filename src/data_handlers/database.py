@@ -192,6 +192,14 @@ CREATE TABLE IF NOT EXISTS user_cover_letter_writing_instructions (
     PRIMARY KEY (username, position),
     FOREIGN KEY (username) REFERENCES users(username) ON DELETE CASCADE
 );
+
+CREATE TABLE IF NOT EXISTS user_search_instructions (
+    username TEXT NOT NULL,
+    position INTEGER NOT NULL,
+    instruction TEXT NOT NULL,
+    PRIMARY KEY (username, position),
+    FOREIGN KEY (username) REFERENCES users(username) ON DELETE CASCADE
+);
 """
 
 
@@ -679,6 +687,13 @@ class Database:
         """, (username,)).fetchall()
         user["cover_letter_writing_instructions"] = [r["instruction"] for r in rows]
 
+        # Search instructions
+        rows = conn.execute("""
+            SELECT instruction FROM user_search_instructions
+            WHERE username = ? ORDER BY position
+        """, (username,)).fetchall()
+        user["search_instructions"] = [r["instruction"] for r in rows]
+
         return user
 
     def update_user_field(self, username: str, field: str, value: str):
@@ -772,3 +787,7 @@ class Database:
     def set_user_cover_letter_writing_instructions(self, username: str, instructions: list[str]):
         """Set cover letter writing instructions list."""
         self._set_user_list(username, "user_cover_letter_writing_instructions", "instruction", instructions)
+
+    def set_user_search_instructions(self, username: str, instructions: list[str]):
+        """Set search instructions list."""
+        self._set_user_list(username, "user_search_instructions", "instruction", instructions)
