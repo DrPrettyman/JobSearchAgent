@@ -473,6 +473,13 @@ class JobOptions:
             display_job_detail(self.job)
 
             choices = []
+
+            if self.job.link:
+                choices.append({"name": "Open job link", "value": "open_link"})
+            choices.append({"name": "Google this job", "value": "google_job"})
+            
+            choices.append({"name": "─" * 30, "value": None, "disabled": ""})
+            
             # Status transition options based on current status
             if self.job.status == JobStatus.PENDING:
                 choices.append({"name": "▶ Mark as in progress", "value": "in_progress"})
@@ -487,57 +494,51 @@ class JobOptions:
                 choices.append({"name": "✗ Discard job", "value": "discard"})
             elif self.job.status == JobStatus.DISCARDED:
                 choices.append({"name": "○ Restore job", "value": "restore"})
-
-            if self.job.link:
-                choices.append({"name": "🔗 Open job link", "value": "open_link"})
-            choices.append({"name": "🔍 Google this job", "value": "google_job"})
-
-            choices.append({"name": "✏️ Edit job details", "value": "edit_details"})
-
+                
+            choices.append({"name": "─" * 30, "value": None, "disabled": ""})
+            
             # Option to add/edit job description
+            choices.append({"name": "Edit job details", "value": "edit_details"})
             if self.job.full_description:
-                choices.append({"name": "👁️ View full description", "value": "view_description"})
-                choices.append({"name": "📝 Edit job description", "value": "edit_description"})
+                choices.append({"name": "View full description", "value": "view_description"})
+                choices.append({"name": "Edit job description", "value": "edit_description"})
             else:
-                choices.append({"name": "📝 Add job description", "value": "edit_description"})
+                choices.append({"name": "Add job description", "value": "edit_description"})
 
             if self.job.cover_letter_body:
-                choices.append({"name": "🔄 Regenerate cover letter", "value": "cover_letter_generate"})
-                choices.append({"name": "📄 Copy plain text cover letter to clipboard", "value": "cover_letter_text_clipboard"})
+                choices.append({"name": "Regenerate cover letter", "value": "cover_letter_generate"})
+                choices.append({"name": "Copy plain text cover letter to clipboard", "value": "cover_letter_text_clipboard"})
             else:
-                choices.append({"name": "📄 Generate cover letter", "value": "cover_letter_generate"})
+                choices.append({"name": "Generate cover letter", "value": "cover_letter_generate"})
 
             # Questions section
             if self.job.questions:
                 unanswered = sum(1 for q in self.job.questions if not q.get("answer"))
-                choices.append({"name": f"❓ View questions ({len(self.job.questions)})", "value": "view_questions"})
-                choices.append({"name": "❓ Add more questions", "value": "add_questions"})
+                choices.append({"name": f"View questions ({len(self.job.questions)})", "value": "view_questions"})
+                choices.append({"name": "Add more questions", "value": "add_questions"})
                 if unanswered:
-                    choices.append({"name": f"✨ Generate answers ({unanswered} unanswered)", "value": "generate_answers"})
+                    choices.append({"name": f"Generate answers ({unanswered} unanswered)", "value": "generate_answers"})
                 else:
-                    choices.append({"name": "🔄 Regenerate answers", "value": "generate_answers"})
-                choices.append({"name": "🗑️ Clear all questions", "value": "clear_questions"})
+                    choices.append({"name": "Regenerate answers", "value": "generate_answers"})
+                choices.append({"name": "Clear all questions", "value": "clear_questions"})
             else:
-                choices.append({"name": "❓ Add application questions", "value": "add_questions"})
+                choices.append({"name": "Add application questions", "value": "add_questions"})
             
             if self.job.cover_letter_pdf_path is not None:
-                choices.append({"name": "📄 Open PDF cover letter", "value": "cover_letter_open"})
-                choices.append({"name": "📄 Copy PDF cover letter to clipboard", "value": "cover_letter_pdf_clipboard"})
+                choices.append({"name": "Open PDF cover letter", "value": "cover_letter_open"})
+                choices.append({"name": "Copy PDF cover letter to clipboard", "value": "cover_letter_pdf_clipboard"})
             else:
                 if self.job.cover_letter_body:
-                    choices.append({"name": "📄 Retry PDF cover letter export", "value": "cover_letter_pdf_export"})
+                    choices.append({"name": "Retry PDF cover letter export", "value": "cover_letter_pdf_export"})
 
             # Writing style option
             if self.job.writing_instructions:
-                choices.append({"name": "✏️ Edit writing style (custom)", "value": "writing_instructions"})
+                choices.append({"name": "Edit writing style (custom)", "value": "writing_instructions"})
             else:
-                choices.append({"name": "✏️ Set custom writing style", "value": "writing_instructions"})
+                choices.append({"name": "Set custom writing style", "value": "writing_instructions"})
 
+            choices.append({"name": "─" * 30, "value": None, "disabled": ""})
             choices.append({"name": "← Back to jobs list", "value": "back"})
-
-            print()
-            print_thick_line()
-            print()
 
             action = inquirer.select(
                 message="What would you like to do?",
@@ -1109,6 +1110,7 @@ class UserOptions:
             instructions = self.user.cover_letter_writing_instructions
             print_numbered_list("Instructions", instructions)
             print()
+            print_thick_line()
 
             choices = [
                 {"name": "Add instruction", "value": "add"}, 
@@ -1158,6 +1160,8 @@ class UserOptions:
                 print_numbered_list("Current instructions", instructions)
             else:
                 print(f"  {Colors.DIM}No search instructions set.{Colors.RESET}")
+            print()
+            print_thick_line()
             print()
 
             choices = [
@@ -1480,13 +1484,13 @@ class UserOptions:
                 {"name": f"Search using all queries ({num_queries})", "value": "search_all"},
                 {"name": "Search using selected queries", "value": "search_selected"},
                 {"name": "─" * 30, "value": None, "disabled": ""},
-                {"name": "Review queries", "value": "review"},
                 {"name": "Generate new queries:", "value": None, "disabled": ""},
                 {"name": " "*4 + "—  5 new queries", "value": "generate_05"},
                 {"name": " "*4 + "— 10 new queries", "value": "generate_10"},
                 {"name": " "*4 + "— 20 new queries", "value": "generate_20"},
                 {"name": " "*4 + "— 30 new queries", "value": "generate_30"},
                 {"name": "─" * 30, "value": None, "disabled": ""},
+                {"name": "Review queries", "value": "review"},
                 {"name": "Edit job titles", "value": "edit_titles"},
                 {"name": "Edit job locations", "value": "edit_locations"},
                 {"name": "Edit search instructions", "value": "edit_instructions"},
