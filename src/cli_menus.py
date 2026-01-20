@@ -1138,6 +1138,66 @@ class UserOptions:
                 print(f"\n{Colors.GREEN}Reset writing instructions: using defaults.{Colors.RESET}")
                 time.sleep(1)
 
+    def configure_search_instructions(self):
+        """Configure search instructions for job search prompts."""
+        while True:
+            clear_screen()
+            print_header("Search Instructions")
+            print(f"  {Colors.DIM}These instructions guide AI when generating search queries{Colors.RESET}")
+            print(f"  {Colors.DIM}and filtering job results.{Colors.RESET}\n")
+
+            instructions = self.user.search_instructions
+            if instructions:
+                print_numbered_list("Current instructions", instructions)
+            else:
+                print(f"  {Colors.DIM}No search instructions set.{Colors.RESET}")
+            print()
+
+            choices = [
+                {"name": "Add instruction", "value": "add"},
+            ]
+            if instructions:
+                choices.append({"name": "Remove instruction", "value": "remove"})
+                choices.append({"name": "Clear all", "value": "clear"})
+            choices.append({"name": "Done", "value": "done"})
+
+            action = inquirer.select(message="Action:", choices=choices).execute()
+
+            if action == "done":
+                break
+            elif action == "add":
+                print(f"\n  {Colors.DIM}Examples:{Colors.RESET}")
+                print(f"  {Colors.DIM}- Consider fully remote jobs only{Colors.RESET}")
+                print(f"  {Colors.DIM}- Exclude contract or temporary positions{Colors.RESET}")
+                print(f"  {Colors.DIM}- Focus on companies with 50+ employees{Colors.RESET}\n")
+                instruction = inquirer.text(
+                    message="Enter instruction:",
+                    validate=lambda x: len(x.strip()) > 0
+                ).execute()
+                if instruction:
+                    instructions.append(instruction.strip())
+                    self.user.search_instructions = instructions
+            elif action == "remove":
+                to_remove = inquirer.select(
+                    message="Select instruction to remove:",
+                    choices=[
+                        {"name": f"{i}. {inst[:60]}{'...' if len(inst) > 60 else ''}", "value": i-1}
+                        for i, inst in enumerate(instructions, 1)
+                    ] + [{"name": "Cancel", "value": None}],
+                ).execute()
+                if to_remove is not None:
+                    instructions.pop(to_remove)
+                    self.user.search_instructions = instructions
+            elif action == "clear":
+                confirm = inquirer.confirm(
+                    message="Clear all search instructions?",
+                    default=False
+                ).execute()
+                if confirm:
+                    self.user.search_instructions = []
+                    print(f"\n{Colors.GREEN}Cleared all search instructions.{Colors.RESET}")
+                    time.sleep(1)
+
     def _move_cover_letter_pdfs(self, old_dir: Path, new_dir: Path):
         """Move cover letter PDFs from old directory to new directory."""
         #TODO: This is business logic that should be in a separate module
@@ -1357,6 +1417,7 @@ class UserOptions:
                     {"name": "Edit job locations", "value": self.configure_job_locations},
                     {"name": "Edit cover letter output directory", "value": self.configure_cover_letter_output_dir},
                     {"name": "Edit cover letter writing style", "value": self.configure_writing_instructions},
+                    {"name": "Edit search instructions", "value": self.configure_search_instructions},
                     {"name": "Edit AI credentials", "value": self.configure_ai_credentials},
                     {"name": "─" * 30, "value": None, "disabled": ""},
                     {"name": "Refresh source documents", "value": self.refresh_source_documents},

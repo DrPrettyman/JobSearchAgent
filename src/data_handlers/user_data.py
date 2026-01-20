@@ -43,7 +43,8 @@ class User:
         self._cover_letter_output_dir = user_info.get("cover_letter_output_dir", "")
         self._ai_credentials = user_info.get("ai_credentials", {"method": "claude_local"})
         self._cover_letter_writing_instructions = user_info.get("cover_letter_writing_instructions", [])
-        
+        self._search_instructions = user_info.get("search_instructions", [])
+
         if self._is_new_user:
             self.cover_letter_writing_instructions = DEFAULT_WRITING_INSTRUCTIONS
 
@@ -173,6 +174,18 @@ class User:
         
     def reset_cover_letter_writing_instructions(self):
         self.cover_letter_writing_instructions = DEFAULT_WRITING_INSTRUCTIONS
+
+    # --- Search instructions ---
+
+    @property
+    def search_instructions(self) -> list[str]:
+        """Custom instructions for job search prompts."""
+        return self._search_instructions
+
+    @search_instructions.setter
+    def search_instructions(self, value: list[str]):
+        self._search_instructions = value
+        DATABASE.set_user_search_instructions(self._username, value)
 
     # --- Websites list ---
 

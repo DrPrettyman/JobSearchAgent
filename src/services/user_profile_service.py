@@ -318,6 +318,11 @@ Background:
             or combined_documents_as_string(user.combined_source_documents)
         )
 
+        search_instructions_block = ""
+        if user.search_instructions:
+            instructions_text = "\n".join(f"- {inst}" for inst in user.search_instructions)
+            search_instructions_block = f"\nSpecial instructions from the job seeker:\n{instructions_text}\n"
+
         prompt = f"""Based on this job seeker's profile, create 30 effective job search queries.
 
 Job titles of interest: {user.desired_job_titles}
@@ -325,7 +330,7 @@ Preferred locations: {user.desired_job_locations}
 
 Background summary:
 {user_background}
-
+{search_instructions_block}
 Create varied queries using:
 - Different job title variations and related roles
 - Different location combinations
