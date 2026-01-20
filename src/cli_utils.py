@@ -41,6 +41,10 @@ class Colors:
     RESET = "\033[0m"
     
     
+def pad_middle(text1: str, text2: str, width: int = 30):
+    return text1 + text2.rjust(width-len(text1))
+    
+    
 def text_to_lines(text: str, width: int = DEFAULT_WIDTH) -> list[str]:
     words = text.split()
     

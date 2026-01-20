@@ -121,7 +121,8 @@ from cli_utils import (
     text_to_lines,
     hyperlink,
     display_job_card,
-    display_job_detail
+    display_job_detail,
+    pad_middle
 )
 from utils import (
     combined_documents_as_string,
@@ -473,6 +474,8 @@ class JobOptions:
             display_job_detail(self.job)
 
             choices = []
+            
+            choices.append({"name": "─" * 30, "value": None, "disabled": ""})
 
             if self.job.link:
                 choices.append({"name": "Open job link", "value": "open_link"})
@@ -505,12 +508,6 @@ class JobOptions:
             else:
                 choices.append({"name": "Add job description", "value": "edit_description"})
 
-            if self.job.cover_letter_body:
-                choices.append({"name": "Regenerate cover letter", "value": "cover_letter_generate"})
-                choices.append({"name": "Copy plain text cover letter to clipboard", "value": "cover_letter_text_clipboard"})
-            else:
-                choices.append({"name": "Generate cover letter", "value": "cover_letter_generate"})
-
             # Questions section
             if self.job.questions:
                 unanswered = sum(1 for q in self.job.questions if not q.get("answer"))
@@ -524,13 +521,22 @@ class JobOptions:
             else:
                 choices.append({"name": "Add application questions", "value": "add_questions"})
             
+            # Cover letter options
+            choices.append({"name": "─" * 30, "value": None, "disabled": ""})
+            if self.job.cover_letter_body:
+                choices.append({"name": "Regenerate cover letter", "value": "cover_letter_generate"})
+                choices.append({"name": "Copy plain text cover letter to clipboard", "value": "cover_letter_text_clipboard"})
+            else:
+                choices.append({"name": "Generate cover letter", "value": "cover_letter_generate"})
+                
             if self.job.cover_letter_pdf_path is not None:
                 choices.append({"name": "Open PDF cover letter", "value": "cover_letter_open"})
                 choices.append({"name": "Copy PDF cover letter to clipboard", "value": "cover_letter_pdf_clipboard"})
             else:
                 if self.job.cover_letter_body:
                     choices.append({"name": "Retry PDF cover letter export", "value": "cover_letter_pdf_export"})
-
+            choices.append({"name": "─" * 30, "value": None, "disabled": ""})
+            
             # Writing style option
             if self.job.writing_instructions:
                 choices.append({"name": "Edit writing style (custom)", "value": "writing_instructions"})
@@ -539,6 +545,7 @@ class JobOptions:
 
             choices.append({"name": "─" * 30, "value": None, "disabled": ""})
             choices.append({"name": "← Back to jobs list", "value": "back"})
+            choices.append({"name": "─" * 30, "value": None, "disabled": ""})
 
             action = inquirer.select(
                 message="What would you like to do?",
@@ -1792,23 +1799,29 @@ class UserOptions:
                 )
                 print()
 
-            choices=[
-                {"name": "View/Edit User Info", "value": "user"},
-                {"name": "Search for Jobs", "value": "search"}
-            ]
+            choices = [{"name": "─" * 30, "value": None, "disabled": ""}]
+            
             if num_pending:
-                choices.append({"name": f"○ View pending jobs ({num_pending})", "value": "jobs_pending"})
+                choices.append({"name": pad_middle("○ View pending jobs", f"({num_pending})", 30), "value": "jobs_pending"})
             if num_in_progress:
-                choices.append({"name": f"▶ View in progress jobs ({num_in_progress})", "value": "jobs_in_progress"})
+                choices.append({"name": pad_middle("▶ View in progress jobs", f"({num_in_progress})", 30), "value": "jobs_in_progress"})
             if num_applied:
-                choices.append({"name": f"✓ View applied jobs ({num_applied})", "value": "jobs_applied"})
+                choices.append({"name": pad_middle("✓ View applied jobs", f"({num_applied})", 30), "value": "jobs_applied"})
             if num_discarded:
-                choices.append({"name": f"✗ View discarded jobs ({num_discarded})", "value": "jobs_discarded"})
+                choices.append({"name": pad_middle("✗ View discarded jobs", f"({num_discarded})", 30), "value": "jobs_discarded"})
+            
+            choices.append({"name": "─" * 30, "value": None, "disabled": ""})
+            
             choices.extend([
+                {"name": "Search for new Jobs", "value": "search"},
                 {"name": "Add a job manually", "value": "add_job"},
+                {"name": "─" * 30, "value": None, "disabled": ""},
+                {"name": "View/Edit User Info", "value": "user"},
                 {"name": "Settings", "value": "settings"},
-                {"name": "Exit", "value": "exit"}
+                {"name": "Exit", "value": "exit"},
+                {"name": "─" * 30, "value": None, "disabled": ""}
                 ])
+            
             action = inquirer.select(
                 message="Select an option:",
                 choices=choices
