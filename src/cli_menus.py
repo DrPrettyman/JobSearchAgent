@@ -1583,6 +1583,10 @@ class UserOptions:
 
             if user_input.lower() in ("b", "back", ""):
                 break
+            
+            if user_input == "DELETE":
+                for job in jobs:
+                    self.user.job_handler.delete_job(job_id=job.id)
 
             try:
                 index = int(user_input) - 1
