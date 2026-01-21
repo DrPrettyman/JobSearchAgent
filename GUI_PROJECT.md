@@ -10,8 +10,8 @@ The GUI provides an alternative interface to the existing CLI, using **PySide6**
 
 ```
 src/
-├── main.py                    # CLI entry point (unchanged)
-├── gui_main.py                # GUI entry point
+├── main.py                    # Main entry point (supports --gui flag)
+├── gui_main.py                # Standalone GUI entry point
 ├── gui/
 │   ├── __init__.py
 │   ├── app.py                 # QApplication setup, theming
@@ -141,24 +141,30 @@ Using a professional, accessible color scheme:
 
 ## Implementation Progress
 
-- [ ] Core scaffold (entry point, main window, navigation)
-- [ ] Dashboard page
-- [ ] Jobs List page
-- [ ] Job Detail page
-- [ ] Profile page
-- [ ] Search page
-- [ ] Threading for async operations
+- [x] Core scaffold (entry point, main window, navigation)
+- [x] Dashboard page
+- [x] Jobs List page
+- [x] Job Detail page
+- [x] Profile page
+- [x] Search page
+- [x] Threading for async operations
 - [ ] First-time setup wizard
 - [ ] Settings dialog
+- [ ] Add job dialog
 - [ ] Keyboard shortcuts
 - [ ] Dark mode toggle
 
 ## Running the GUI
 
 ```bash
-# After implementation:
+# Install PySide6 first (if not already installed)
+pip install PySide6
+
+# Run with GUI flag
 ./run.sh --gui
-# or
+# or directly
+cd src && python main.py --gui
+# or use the standalone entry point
 python src/gui_main.py
 ```
 
@@ -177,3 +183,80 @@ PySide6>=6.6.0
 4. **Keyboard accessible**: Tab navigation, shortcuts for common actions
 5. **Responsive**: Window resizing works well
 6. **Platform native**: Use system colors where appropriate
+
+## Style Guide
+
+### Layout Hierarchy
+
+```
+Page
+├── Page Header (large title, no container)
+├── Card (white bg, border, rounded corners)
+│   ├── Section Title (bold text, NO container)
+│   ├── Content (plain text/labels, NO borders)
+│   └── Actions (buttons in a row)
+├── Card
+│   └── ...
+```
+
+### Rule: One Container Per Section
+
+**WRONG** - nested containers:
+```
+┌─ Card ──────────────────────────┐
+│ ┌─ Title Container ──────────┐  │
+│ │ Section Title              │  │
+│ └────────────────────────────┘  │
+│ ┌─ Content Container ────────┐  │
+│ │ Some content here          │  │
+│ └────────────────────────────┘  │
+└─────────────────────────────────┘
+```
+
+**CORRECT** - flat structure:
+```
+┌─ Card ──────────────────────────┐
+│ Section Title (just bold text)  │
+│ Some content here (plain text)  │
+│ More content                    │
+│ [Button] [Button]               │
+└─────────────────────────────────┘
+```
+
+### Component Styles
+
+**Cards** (the ONLY bordered containers):
+- White background
+- 1px border `#e2e8f0`
+- Border radius 12px
+- Padding 20px
+
+**Section Titles** (inside cards):
+- Font size 16px
+- Font weight 600 (semibold)
+- Color `#1e293b`
+- NO background, NO border
+- Margin bottom 12px
+
+**Labels/Content**:
+- Font size 14px
+- Color `#64748b` (muted) or `#1e293b` (primary)
+- NO background, NO border
+
+**Buttons**:
+- Primary: Blue bg `#2563eb`, white text
+- Secondary: Light gray bg `#f1f5f9`, dark text
+- Danger: Red bg `#dc2626`, white text
+- Padding 8px 16px, border-radius 6px
+
+**Lists** (QListWidget):
+- Border and background allowed (it's interactive)
+- Inside a card, no extra wrapper
+
+### What NOT to Do
+
+1. Don't wrap labels in QFrame with borders
+2. Don't give section titles their own background
+3. Don't nest cards inside cards
+4. Don't add borders to plain text content
+5. Don't use CollapsibleSection inside cards (it adds its own container)

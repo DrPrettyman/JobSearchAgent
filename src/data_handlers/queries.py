@@ -102,3 +102,8 @@ class QueryHandler:
         for query_id in query_ids:
             if query_id in self._queries_cache:
                 self._queries_cache[query_id].removed = True
+
+    def clear(self):
+        """Soft-delete all active queries."""
+        for query in list(self):
+            query.removed = True
