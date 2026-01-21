@@ -1,6 +1,7 @@
 """CLI menu functions for JobSearch application."""
 
 import os
+import re
 import platform
 import shutil
 import subprocess
@@ -105,17 +106,23 @@ from InquirerPy.validator import PathValidator
 from data_handlers import User, Job, JobStatus
 from cli_utils import (
     Colors,
+    DEFAULT_WIDTH,
     ASCII_ART_JOBSEARCH,
     clear_screen,
     print_header,
     print_section,
     print_field,
     print_list,
+    print_numbered_list,
+    print_inline_list,
+    print_status_summary,
     print_box,
     print_thick_line,
+    text_to_lines,
     hyperlink,
     display_job_card,
-    display_job_detail
+    display_job_detail,
+    pad_middle
 )
 from utils import (
     combined_documents_as_string,
@@ -174,9 +181,8 @@ class JobOptions:
         print_header(f"Add Questions: {self.job.title} at {self.job.company}")
 
         if self.job.questions:
-            print(f"\n{Colors.CYAN}Current questions:{Colors.RESET}")
-            for i, q in enumerate(self.job.questions, 1):
-                print(f"  {Colors.DIM}{i}. {q['question'][:60]}...{Colors.RESET}" if len(q['question']) > 60 else f"  {Colors.DIM}{i}. {q['question']}{Colors.RESET}")
+            print()
+            print_numbered_list("Current questions", [q['question'] for q in self.job.questions])
             print()
 
         print(f"{Colors.YELLOW}Paste your application questions below (one per line).{Colors.RESET}")
@@ -278,18 +284,16 @@ class JobOptions:
             return
 
         for i, qa in enumerate(self.job.questions, 1):
-            print(f"\n{Colors.BOLD}{Colors.CYAN}Q{i}: {qa['question']}{Colors.RESET}")
+            # Wrap question text
+            q_lines = text_to_lines(qa['question'], width=DEFAULT_WIDTH - 6)
+            print(f"\n{Colors.BOLD}{Colors.CYAN}Q{i}: {q_lines[0]}{Colors.RESET}")
+            for q_line in q_lines[1:]:
+                print(f"    {Colors.BOLD}{Colors.CYAN}{q_line}{Colors.RESET}")
+
             if qa.get("answer"):
                 print(f"{Colors.DIM}{'─' * 40}{Colors.RESET}")
                 # Word wrap the answer
-                words = qa["answer"].split()
-                line = ""
-                for word in words:
-                    if len(line) + len(word) > 76:
-                        print(f"  {line}")
-                        line = ""
-                    line += word + " "
-                if line.strip():
+                for line in text_to_lines(qa["answer"], width=DEFAULT_WIDTH - 4):
                     print(f"  {line}")
             else:
                 print(f"  {Colors.YELLOW}(no answer generated){Colors.RESET}")
@@ -320,19 +324,12 @@ class JobOptions:
             print_header(f"Writing Style: {self.job.title}")
             
             general_instructions = self.user.cover_letter_writing_instructions
-            print(f"  {Colors.DIM}General writing instructions:{Colors.RESET}\n")
-            for i, instruction in enumerate(general_instructions, 1):
-                print(f"  {Colors.GREEN}{i}.{Colors.RESET} {instruction}")
+            print_numbered_list("General writing instructions", general_instructions)
             print()
 
             job_instructions = self.job.writing_instructions
-            print(f"  {Colors.DIM}Specific instructions for this job:{Colors.RESET}\n")
-            if job_instructions:
-                for i, instruction in enumerate(job_instructions, 1):
-                    print(f"  {Colors.GREEN}{i}.{Colors.RESET} {instruction}")
-                print()
-            else:
-                print(f"  {Colors.DIM}None.{Colors.RESET}\n")
+            print_numbered_list("Specific instructions for this job", job_instructions)
+            print()
 
             choices = [{"name": "Add job-specific instruction", "value": "add"}]
             if job_instructions:
@@ -432,7 +429,12 @@ class JobOptions:
 
         if self.job.full_description:
             print(f"\n{Colors.CYAN}Current description:{Colors.RESET}")
-            print(f"{Colors.DIM}{self.job.full_description[:500]}{'...' if len(self.job.full_description) > 500 else ''}{Colors.RESET}\n")
+            preview = self.job.full_description[:500]
+            if len(self.job.full_description) > 500:
+                preview += "..."
+            for line in text_to_lines(preview, width=DEFAULT_WIDTH - 2):
+                print(f"{Colors.DIM}{line}{Colors.RESET}")
+            print()
 
         print(f"{Colors.YELLOW}Paste the job description below.{Colors.RESET}")
         print(f"{Colors.DIM}Type 'DONE' on a new line when finished, or 'CANCEL' to abort.{Colors.RESET}\n")
@@ -472,6 +474,15 @@ class JobOptions:
             display_job_detail(self.job)
 
             choices = []
+            
+            choices.append({"name": "─" * 30, "value": None, "disabled": ""})
+
+            if self.job.link:
+                choices.append({"name": "Open job link", "value": "open_link"})
+            choices.append({"name": "Google this job", "value": "google_job"})
+            
+            choices.append({"name": "─" * 30, "value": None, "disabled": ""})
+            
             # Status transition options based on current status
             if self.job.status == JobStatus.PENDING:
                 choices.append({"name": "▶ Mark as in progress", "value": "in_progress"})
@@ -486,57 +497,55 @@ class JobOptions:
                 choices.append({"name": "✗ Discard job", "value": "discard"})
             elif self.job.status == JobStatus.DISCARDED:
                 choices.append({"name": "○ Restore job", "value": "restore"})
-
-            if self.job.link:
-                choices.append({"name": "🔗 Open job link", "value": "open_link"})
-            choices.append({"name": "🔍 Google this job", "value": "google_job"})
-
-            choices.append({"name": "✏️ Edit job details", "value": "edit_details"})
-
+                
+            choices.append({"name": "─" * 30, "value": None, "disabled": ""})
+            
             # Option to add/edit job description
+            choices.append({"name": "Edit job details", "value": "edit_details"})
             if self.job.full_description:
-                choices.append({"name": "👁️ View full description", "value": "view_description"})
-                choices.append({"name": "📝 Edit job description", "value": "edit_description"})
+                choices.append({"name": "View full description", "value": "view_description"})
+                choices.append({"name": "Edit job description", "value": "edit_description"})
             else:
-                choices.append({"name": "📝 Add job description", "value": "edit_description"})
-
-            if self.job.cover_letter_body:
-                choices.append({"name": "🔄 Regenerate cover letter", "value": "cover_letter_generate"})
-                choices.append({"name": "📄 Copy plain text cover letter to clipboard", "value": "cover_letter_text_clipboard"})
-            else:
-                choices.append({"name": "📄 Generate cover letter", "value": "cover_letter_generate"})
+                choices.append({"name": "Add job description", "value": "edit_description"})
 
             # Questions section
             if self.job.questions:
                 unanswered = sum(1 for q in self.job.questions if not q.get("answer"))
-                choices.append({"name": f"❓ View questions ({len(self.job.questions)})", "value": "view_questions"})
-                choices.append({"name": "❓ Add more questions", "value": "add_questions"})
+                choices.append({"name": f"View questions ({len(self.job.questions)})", "value": "view_questions"})
+                choices.append({"name": "Add more questions", "value": "add_questions"})
                 if unanswered:
-                    choices.append({"name": f"✨ Generate answers ({unanswered} unanswered)", "value": "generate_answers"})
+                    choices.append({"name": f"Generate answers ({unanswered} unanswered)", "value": "generate_answers"})
                 else:
-                    choices.append({"name": "🔄 Regenerate answers", "value": "generate_answers"})
-                choices.append({"name": "🗑️ Clear all questions", "value": "clear_questions"})
+                    choices.append({"name": "Regenerate answers", "value": "generate_answers"})
+                choices.append({"name": "Clear all questions", "value": "clear_questions"})
             else:
-                choices.append({"name": "❓ Add application questions", "value": "add_questions"})
+                choices.append({"name": "Add application questions", "value": "add_questions"})
             
+            # Cover letter options
+            choices.append({"name": "─" * 30, "value": None, "disabled": ""})
+            if self.job.cover_letter_body:
+                choices.append({"name": "Regenerate cover letter", "value": "cover_letter_generate"})
+                choices.append({"name": "Copy plain text cover letter to clipboard", "value": "cover_letter_text_clipboard"})
+            else:
+                choices.append({"name": "Generate cover letter", "value": "cover_letter_generate"})
+                
             if self.job.cover_letter_pdf_path is not None:
-                choices.append({"name": "📄 Open PDF cover letter", "value": "cover_letter_open"})
-                choices.append({"name": "📄 Copy PDF cover letter to clipboard", "value": "cover_letter_pdf_clipboard"})
+                choices.append({"name": "Open PDF cover letter", "value": "cover_letter_open"})
+                choices.append({"name": "Copy PDF cover letter to clipboard", "value": "cover_letter_pdf_clipboard"})
             else:
                 if self.job.cover_letter_body:
-                    choices.append({"name": "📄 Retry PDF cover letter export", "value": "cover_letter_pdf_export"})
-
+                    choices.append({"name": "Retry PDF cover letter export", "value": "cover_letter_pdf_export"})
+            choices.append({"name": "─" * 30, "value": None, "disabled": ""})
+            
             # Writing style option
             if self.job.writing_instructions:
-                choices.append({"name": "✏️ Edit writing style (custom)", "value": "writing_instructions"})
+                choices.append({"name": "Edit writing style (custom)", "value": "writing_instructions"})
             else:
-                choices.append({"name": "✏️ Set custom writing style", "value": "writing_instructions"})
+                choices.append({"name": "Set custom writing style", "value": "writing_instructions"})
 
+            choices.append({"name": "─" * 30, "value": None, "disabled": ""})
             choices.append({"name": "← Back to jobs list", "value": "back"})
-
-            print()
-            print_thick_line()
-            print()
+            choices.append({"name": "─" * 30, "value": None, "disabled": ""})
 
             action = inquirer.select(
                 message="What would you like to do?",
@@ -633,13 +642,26 @@ class UserOptions:
         self.user = user
         self._job_title_suggestions = []
         self._job_location_suggestions = []
-        
+
         self._job_searcher = None
+        self._user_profile_service = None
+
+    @property
+    def user_profile_service(self):
+        if self._user_profile_service is None:
+            self._user_profile_service = UserProfileService(
+                self.user,
+                on_progress=lambda msg, _: print(msg)
+            )
+        return self._user_profile_service
         
     @property
     def job_searcher(self):
         if self._job_searcher is None:
-            self._job_searcher = JobSearcher(user=self.user)
+            self._job_searcher = JobSearcher(
+                user=self.user,
+                on_progress=lambda msg, _: print(msg)
+            )
         return self._job_searcher
         
     def first_time_setup(self):
@@ -716,10 +738,8 @@ class UserOptions:
         print_field("Email", self.user.email if self.user.email else _not_set)
         print_field("LinkedIn", self.user.linkedin_url if self.user.linkedin_url else _not_set)
         
-        desired_title_list = ", ".join(f"'{s}'" for s in self.user.desired_job_titles) if self.user.desired_job_titles else _not_set
-        desired_locations_list = ", ".join(f"'{s}'" for s in self.user.desired_job_locations) if self.user.desired_job_locations else _not_set
-        print_field("Desired Job Titles", desired_title_list)
-        print_field("Desired Job Locations", desired_locations_list)
+        print_inline_list("Desired Job Titles", self.user.desired_job_titles)
+        print_inline_list("Desired Job Locations", self.user.desired_job_locations)
 
         # Comprehensive Summary field
         if self.user.comprehensive_summary:
@@ -804,10 +824,8 @@ class UserOptions:
         clear_screen()
         print_header("Credentials")
         current = self.user.credentials
-        if current:
-            print(f"  {Colors.DIM}Current: {', '.join(current)}{Colors.RESET}\n")
-        else:
-            print(f"  {Colors.DIM}No credentials set{Colors.RESET}\n")
+        print_inline_list("Current", current, quote=False)
+        print()
 
         choices = [
             {"name": cred, "value": cred, "enabled": cred in current}
@@ -826,12 +844,8 @@ class UserOptions:
             clear_screen()
             print_header("Websites")
             sites = self.user.websites
-            if sites:
-                for site in sites:
-                    print(f"  {Colors.GREEN}•{Colors.RESET} {site}")
-                print()
-            else:
-                print(f"  {Colors.DIM}No websites configured{Colors.RESET}\n")
+            print_list("Configured websites", sites)
+            print()
 
             choices = [{"name": "Add a website", "value": "add"}]
             if sites:
@@ -866,17 +880,11 @@ class UserOptions:
             clear_screen()
             print_header("Desired Job Titles")
             titles = self.user.desired_job_titles
-            if titles:
-                for t in titles:
-                    print(f"  {Colors.GREEN}•{Colors.RESET} {t}")
-                print()
-            else:
-                print(f"  {Colors.DIM}No job titles configured{Colors.RESET}\n")
+            print_list("Current titles", titles)
+            print()
                 
             if self._job_title_suggestions:
-                print_section("Suggested Job Titles")
-                suggestions = ", ".join(f"'{s}'" for s in self._job_title_suggestions)
-                print(f"  {Colors.YELLOW}{suggestions}{Colors.RESET}")
+                print_inline_list("Suggested Job Titles", self._job_title_suggestions)
                 print()
                 
             choices = [
@@ -938,17 +946,11 @@ class UserOptions:
             clear_screen()
             print_header("Desired Job Locations")
             locations = self.user.desired_job_locations
-            if locations:
-                for loc in locations:
-                    print(f"  {Colors.GREEN}•{Colors.RESET} {loc}")
-                print()
-            else:
-                print(f"  {Colors.DIM}No job locations configured{Colors.RESET}\n")
+            print_list("Current locations", locations)
+            print()
 
             if self._job_location_suggestions:
-                print_section("Suggested Locations")
-                suggestions = ", ".join(f"'{s}'"for s in self._job_location_suggestions)
-                print(f"  {Colors.YELLOW}{suggestions}{Colors.RESET}")
+                print_inline_list("Suggested Locations", self._job_location_suggestions)
                 print()
                 
             choices = [
@@ -1010,17 +1012,14 @@ class UserOptions:
             clear_screen()
             print_header("Source Documents")
             paths = self.user.source_document_paths
-            if paths:
-                for p in paths:
-                    print(f"  {Colors.GREEN}•{Colors.RESET} {p}")
-                print()
-            else:
-                print(f"  {Colors.DIM}No source documents configured{Colors.RESET}\n")
+            print_list("Document paths", paths)
+            print()
 
             action = inquirer.select(
                 message="Action:",
                 choices=[
-                    {"name": "Add a file or folder", "value": "add"},
+                    {"name": "Add a file", "value": "add_file"},
+                    {"name": "Add a folder", "value": "add_folder"},
                     {"name": "Remove a path", "value": "remove"},
                     {"name": "Clear all paths", "value": "clear"},
                     {"name": "← Done", "value": "done"},
@@ -1043,30 +1042,22 @@ class UserOptions:
                 if to_remove:
                     self.user.remove_source_document_path(to_remove)
                     print(f"Removed: {to_remove}")
-            elif action == "add":
-                add_type = inquirer.select(
-                    message="What do you want to add?",
-                    choices=[
-                        {"name": "A specific file", "value": "file"},
-                        {"name": "A folder (all files inside)", "value": "folder"},
-                    ],
+            elif action == "add_file":
+                selected_path = inquirer.filepath(
+                    message="Select file:",
+                    default=str(Path.home()),
+                    validate=PathValidator(is_file=True, message="Must be a file")
                 ).execute()
-
-                if add_type == "folder":
-                    selected_path = inquirer.filepath(
-                        message="Select folder:",
-                        default=str(Path.home()),
-                        validate=PathValidator(is_dir=True, message="Must be a directory")
-                    ).execute()
-                    selected_path = str(Path(selected_path).resolve()) + "/*"
-                else:
-                    selected_path = inquirer.filepath(
-                        message="Select file:",
-                        default=str(Path.home()),
-                        validate=PathValidator(is_file=True, message="Must be a file")
-                    ).execute()
-                    selected_path = str(Path(selected_path).resolve())
-
+                selected_path = str(Path(selected_path).resolve())
+                self.user.add_source_document_path(selected_path)
+                print(f"Added: {selected_path}")
+            elif action == "add_folder":
+                selected_path = inquirer.filepath(
+                    message="Select folder:",
+                    default=str(Path.home()),
+                    validate=PathValidator(is_dir=True, message="Must be a directory")
+                ).execute()
+                selected_path = str(Path(selected_path).resolve()) + "/*"
                 self.user.add_source_document_path(selected_path)
                 print(f"Added: {selected_path}")
 
@@ -1124,10 +1115,9 @@ class UserOptions:
             print_header("Cover Letter Writing Style")
 
             instructions = self.user.cover_letter_writing_instructions
-            print(f"  {Colors.DIM}Instructions:{Colors.RESET}\n")
-            for i, instruction in enumerate(instructions, 1):
-                print(f"  {Colors.GREEN}{i}.{Colors.RESET} {instruction}")
+            print_numbered_list("Instructions", instructions)
             print()
+            print_thick_line()
 
             choices = [
                 {"name": "Add instruction", "value": "add"}, 
@@ -1163,6 +1153,68 @@ class UserOptions:
                 self.user.reset_cover_letter_writing_instructions()
                 print(f"\n{Colors.GREEN}Reset writing instructions: using defaults.{Colors.RESET}")
                 time.sleep(1)
+
+    def configure_search_instructions(self):
+        """Configure search instructions for job search prompts."""
+        while True:
+            clear_screen()
+            print_header("Search Instructions")
+            print(f"  {Colors.DIM}These instructions guide AI when generating search queries{Colors.RESET}")
+            print(f"  {Colors.DIM}and filtering job results.{Colors.RESET}\n")
+
+            instructions = self.user.search_instructions
+            if instructions:
+                print_numbered_list("Current instructions", instructions)
+            else:
+                print(f"  {Colors.DIM}No search instructions set.{Colors.RESET}")
+            print()
+            print_thick_line()
+            print()
+
+            choices = [
+                {"name": "Add instruction", "value": "add"},
+            ]
+            if instructions:
+                choices.append({"name": "Remove instruction", "value": "remove"})
+                choices.append({"name": "Clear all", "value": "clear"})
+            choices.append({"name": "Done", "value": "done"})
+
+            action = inquirer.select(message="Action:", choices=choices).execute()
+
+            if action == "done":
+                break
+            elif action == "add":
+                print(f"\n  {Colors.DIM}Examples:{Colors.RESET}")
+                print(f"  {Colors.DIM}- Consider fully remote jobs only{Colors.RESET}")
+                print(f"  {Colors.DIM}- Exclude contract or temporary positions{Colors.RESET}")
+                print(f"  {Colors.DIM}- Focus on companies with 50+ employees{Colors.RESET}\n")
+                instruction = inquirer.text(
+                    message="Enter instruction:",
+                    validate=lambda x: len(x.strip()) > 0
+                ).execute()
+                if instruction:
+                    instructions.append(instruction.strip())
+                    self.user.search_instructions = instructions
+            elif action == "remove":
+                to_remove = inquirer.select(
+                    message="Select instruction to remove:",
+                    choices=[
+                        {"name": f"{i}. {inst[:60]}{'...' if len(inst) > 60 else ''}", "value": i-1}
+                        for i, inst in enumerate(instructions, 1)
+                    ] + [{"name": "Cancel", "value": None}],
+                ).execute()
+                if to_remove is not None:
+                    instructions.pop(to_remove)
+                    self.user.search_instructions = instructions
+            elif action == "clear":
+                confirm = inquirer.confirm(
+                    message="Clear all search instructions?",
+                    default=False
+                ).execute()
+                if confirm:
+                    self.user.search_instructions = []
+                    print(f"\n{Colors.GREEN}Cleared all search instructions.{Colors.RESET}")
+                    time.sleep(1)
 
     def _move_cover_letter_pdfs(self, old_dir: Path, new_dir: Path):
         """Move cover letter PDFs from old directory to new directory."""
@@ -1236,8 +1288,7 @@ class UserOptions:
 
     def refresh_source_documents(self):
         """Re-read source documents and regenerate summary."""
-        service = UserProfileService(on_progress=lambda msg, level: print(msg))
-        result = service.refresh_source_documents(self.user)
+        result = self.user_profile_service.refresh_source_documents()
 
         if result.success:
             print(f"{Colors.GREEN}✓ {result.message}{Colors.RESET}")
@@ -1246,8 +1297,7 @@ class UserOptions:
 
     def refresh_online_presence(self):
         """Fetch online presence and regenerate summary."""
-        service = UserProfileService(on_progress=lambda msg, _: print(msg))
-        result = service.refresh_online_presence(self.user)
+        result = self.user_profile_service.refresh_online_presence()
 
         if result.success:
             print(f"{Colors.GREEN}✓ {result.message}{Colors.RESET}")
@@ -1256,13 +1306,10 @@ class UserOptions:
 
     def generate_job_title_and_location_suggestions(self):
         """Use Claude to suggest job titles and locations from source documents."""
-        service = UserProfileService(on_progress=lambda msg, _: print(msg))
-
         existing_titles = list(set(self.user.desired_job_titles) | set(self._job_title_suggestions))
         existing_locations = list(set(self.user.desired_job_locations) | set(self._job_location_suggestions))
 
-        result = service.suggest_job_titles_and_locations(
-            self.user,
+        result = self.user_profile_service.suggest_job_titles_and_locations(
             existing_titles=existing_titles,
             existing_locations=existing_locations
         )
@@ -1283,8 +1330,7 @@ class UserOptions:
     
     def generate_comprehensive_summary(self):
         """Generate a comprehensive summary combining all user information."""
-        service = UserProfileService(on_progress=lambda msg, _: print(msg))
-        result = service.generate_comprehensive_summary(self.user)
+        result = self.user_profile_service.generate_comprehensive_summary()
 
         if result.success:
             print(f"{Colors.GREEN}✓ {result.message}{Colors.RESET}")
@@ -1352,10 +1398,9 @@ class UserOptions:
 
         input("Press Enter to continue...")
 
-    def create_search_queries(self):
+    def create_search_queries(self, num_queries: int = 30):
         """Create search queries from the user's information."""
-        service = UserProfileService(on_progress=lambda msg, _: print(msg))
-        result = service.create_search_queries(self.user)
+        result = self.user_profile_service.create_search_queries(num_queries=num_queries)
 
         if result.success:
             print(f"{Colors.GREEN}✓ {result.message}{Colors.RESET}")
@@ -1383,6 +1428,7 @@ class UserOptions:
                     {"name": "Edit job locations", "value": self.configure_job_locations},
                     {"name": "Edit cover letter output directory", "value": self.configure_cover_letter_output_dir},
                     {"name": "Edit cover letter writing style", "value": self.configure_writing_instructions},
+                    {"name": "Edit search instructions", "value": self.configure_search_instructions},
                     {"name": "Edit AI credentials", "value": self.configure_ai_credentials},
                     {"name": "─" * 30, "value": None, "disabled": ""},
                     {"name": "Refresh source documents", "value": self.refresh_source_documents},
@@ -1404,6 +1450,15 @@ class UserOptions:
         while True:
             clear_screen()
             print_header("Search for Jobs")
+            
+            print_section("Search Criteria")
+            print_inline_list("Desired Job Titles", self.user.desired_job_titles)
+            print_inline_list("Desired Job Locations", self.user.desired_job_locations)
+            if self.user.search_instructions:
+                print_numbered_list("Search Instructions", self.user.search_instructions)
+            else:
+                print(f"  {Colors.DIM}Search Instructions: None{Colors.RESET}")
+            print()
 
             num_queries = len(self.user.query_handler)
             num_jobs = len(self.user.job_handler)
@@ -1432,12 +1487,21 @@ class UserOptions:
             print()
 
             num_pending = self.user.job_handler.number_pending
-            choices=[
-                    {"name": f"Search using all queries ({num_queries})", "value": "search_all"},
-                    {"name": "Search using selected queries", "value": "search_selected"},
-                    {"name": "Review queries", "value": "review"},
-                    {"name": "Generate new queries", "value": "generate"}
-                ]
+            choices = [
+                {"name": f"Search using all queries ({num_queries})", "value": "search_all"},
+                {"name": "Search using selected queries", "value": "search_selected"},
+                {"name": "─" * 30, "value": None, "disabled": ""},
+                {"name": "Generate new queries:", "value": None, "disabled": ""},
+                {"name": " "*4 + "—  5 new queries", "value": "generate_05"},
+                {"name": " "*4 + "— 10 new queries", "value": "generate_10"},
+                {"name": " "*4 + "— 20 new queries", "value": "generate_20"},
+                {"name": " "*4 + "— 30 new queries", "value": "generate_30"},
+                {"name": "─" * 30, "value": None, "disabled": ""},
+                {"name": "Review queries", "value": "review"},
+                {"name": "Edit job titles", "value": "edit_titles"},
+                {"name": "Edit job locations", "value": "edit_locations"},
+                {"name": "Edit search instructions", "value": "edit_instructions"},
+            ]
 
             if num_pending:
                 choices.append({"name": f"○ View pending jobs ({num_pending})", "value": "jobs_pending"})
@@ -1453,8 +1517,25 @@ class UserOptions:
                 return
             elif action == "review":
                 self.review_queries()
-            elif action == "generate":
-                self.create_search_queries()
+            elif m := re.match(r"generate_(\d\d)", action):
+                num_new = int(m.group(1))
+                existing_count = len(self.user.query_handler)
+                if existing_count > 0:
+                    keep_existing = inquirer.confirm(
+                        message=f"Keep existing {existing_count} queries? (No = replace them)",
+                        default=True
+                    ).execute()
+                    if not keep_existing:
+                        all_ids = [q.id for q in self.user.query_handler]
+                        self.user.query_handler.remove(all_ids)
+                        print(f"{Colors.DIM}Cleared {existing_count} existing queries.{Colors.RESET}")
+                self.create_search_queries(num_queries=num_new)
+            elif action == "edit_titles":
+                self.configure_job_titles()
+            elif action == "edit_locations":
+                self.configure_job_locations()
+            elif action == "edit_instructions":
+                self.configure_search_instructions()
             elif action == "jobs_pending":
                 self.jobs_menu(job_type="pending")
             elif action == "search_all":
@@ -1526,7 +1607,13 @@ class UserOptions:
                 input("Press Enter to continue...")
                 return
 
-            print(f"  {Colors.GREEN}✓ {self.user.job_handler.number_applied} applied{Colors.RESET}  •  {Colors.CYAN}▶ {self.user.job_handler.number_in_progress} in progress{Colors.RESET}  •  {Colors.YELLOW}○ {self.user.job_handler.number_pending} pending{Colors.RESET}  •  {Colors.RED}✗ {self.user.job_handler.number_discarded} discarded{Colors.RESET}\n")
+            print_status_summary(
+                applied=self.user.job_handler.number_applied,
+                in_progress=self.user.job_handler.number_in_progress,
+                pending=self.user.job_handler.number_pending,
+                discarded=self.user.job_handler.number_discarded
+            )
+            print()
 
             # Display jobs as cards
             for i, job in enumerate(jobs, 1):
@@ -1541,6 +1628,11 @@ class UserOptions:
             ).execute()
 
             if user_input.lower() in ("b", "back", ""):
+                break
+            
+            if user_input == "DELETE":
+                for job in jobs:
+                    self.user.job_handler.delete_job(job_id=job.id)
                 break
 
             try:
@@ -1699,25 +1791,37 @@ class UserOptions:
             num_total = len(self.user.job_handler)
 
             if num_total:
-                print(f"  {Colors.GREEN}✓ {num_applied} applied{Colors.RESET}  •  {Colors.CYAN}▶ {num_in_progress} in progress{Colors.RESET}  •  {Colors.YELLOW}○ {num_pending} pending{Colors.RESET}  •  {Colors.RED}✗ {num_discarded} discarded{Colors.RESET}\n")
+                print_status_summary(
+                    applied=num_applied,
+                    in_progress=num_in_progress,
+                    pending=num_pending,
+                    discarded=num_discarded
+                )
+                print()
 
-            choices=[
-                {"name": "View/Edit User Info", "value": "user"},
-                {"name": "Search for Jobs", "value": "search"}
-            ]
+            choices = [{"name": "─" * 30, "value": None, "disabled": ""}]
+            
             if num_pending:
-                choices.append({"name": f"○ View pending jobs ({num_pending})", "value": "jobs_pending"})
+                choices.append({"name": pad_middle("○ View pending jobs", f"({num_pending})", 30), "value": "jobs_pending"})
             if num_in_progress:
-                choices.append({"name": f"▶ View in progress jobs ({num_in_progress})", "value": "jobs_in_progress"})
+                choices.append({"name": pad_middle("▶ View in progress jobs", f"({num_in_progress})", 30), "value": "jobs_in_progress"})
             if num_applied:
-                choices.append({"name": f"✓ View applied jobs ({num_applied})", "value": "jobs_applied"})
+                choices.append({"name": pad_middle("✓ View applied jobs", f"({num_applied})", 30), "value": "jobs_applied"})
             if num_discarded:
-                choices.append({"name": f"✗ View discarded jobs ({num_discarded})", "value": "jobs_discarded"})
+                choices.append({"name": pad_middle("✗ View discarded jobs", f"({num_discarded})", 30), "value": "jobs_discarded"})
+            
+            choices.append({"name": "─" * 30, "value": None, "disabled": ""})
+            
             choices.extend([
+                {"name": "Search for new Jobs", "value": "search"},
                 {"name": "Add a job manually", "value": "add_job"},
+                {"name": "─" * 30, "value": None, "disabled": ""},
+                {"name": "View/Edit User Info", "value": "user"},
                 {"name": "Settings", "value": "settings"},
-                {"name": "Exit", "value": "exit"}
+                {"name": "Exit", "value": "exit"},
+                {"name": "─" * 30, "value": None, "disabled": ""}
                 ])
+            
             action = inquirer.select(
                 message="Select an option:",
                 choices=choices

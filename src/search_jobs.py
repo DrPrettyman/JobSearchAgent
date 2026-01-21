@@ -32,16 +32,22 @@ def is_job_board_url(url: str) -> bool:
 
 def search_query(
     query_str: str,
-    on_progress: ProgressCallbackType = print_progress
+    on_progress: ProgressCallbackType = print_progress,
+    search_instructions: list[str] | None = None
 ) -> list[dict]:
     """Search for jobs using a query and return list of job info dicts."""
+
+    search_instructions_block = ""
+    if search_instructions:
+        instructions_text = "\n".join(f"- {inst}" for inst in search_instructions)
+        search_instructions_block = f"\nSpecial instructions from the job seeker:\n{instructions_text}\n"
 
     prompt = f"""Search the web for this job search query: {query_str}
 
 Find job postings that match this query.
 Follow links to find the specific job posting if possible (the page which contains the job description), not a page listing many jobs.
 Extract basic info from results.
-
+{search_instructions_block}
 Return ONLY a JSON array of job objects, no other text:
 [
   {{
@@ -317,8 +323,12 @@ class JobSearcher:
         jobs_created = 0
 
         for i, query in enumerate(queries, 1):
-            self.on_progress(f"\n[{i}/{len(queries)}] {query.query[:60]}...", "info")
-            jobs_found = search_query(query.query, on_progress=self.on_progress)
+            self.on_progress(f"\n[{i}/{len(queries)}] {query.query}", "info")
+            jobs_found = search_query(
+                query.query,
+                on_progress=self.on_progress,
+                search_instructions=self.user.search_instructions
+            )
 
             for job_dict in jobs_found:
                 # Skip if missing required fields

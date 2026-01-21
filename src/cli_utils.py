@@ -41,6 +41,10 @@ class Colors:
     RESET = "\033[0m"
     
     
+def pad_middle(text1: str, text2: str, width: int = 30):
+    return text1 + text2.rjust(width-len(text1))
+    
+    
 def text_to_lines(text: str, width: int = DEFAULT_WIDTH) -> list[str]:
     words = text.split()
     
@@ -106,6 +110,94 @@ def print_list(label: str, items: list, indent: int = 2):
             print(f"{spaces}  {Colors.GREEN}•{Colors.RESET} {item}")
     else:
         print(f"{spaces}  {Colors.DIM}(none){Colors.RESET}")
+        
+
+def print_numbered_list(label: str, items: list, indent: int = 2, width: int = DEFAULT_WIDTH - 4):
+    """Print a numbered list with word wrapping for long items."""
+    spaces = " " * indent
+    print(f"{spaces}{Colors.DIM}{label}:{Colors.RESET}")
+    if items:
+        pad = len(str(len(items))) + 1
+        item_width = width - indent - 2 - pad  # Account for indent, spacing, and number
+        for n, item in enumerate(items, 1):
+            n_str = (str(n) + ".").ljust(pad)
+            lines = text_to_lines(str(item), width=item_width)
+            print(f"{spaces}  {Colors.GREEN}{n_str}{Colors.RESET} {lines[0]}")
+            # Continuation lines aligned with first line of text
+            continuation_indent = " " * (indent + 2 + pad + 1)
+            for line in lines[1:]:
+                print(f"{continuation_indent}{line}")
+    else:
+        print(f"{spaces}  {Colors.DIM}(none){Colors.RESET}")
+
+
+def print_inline_list(label: str, items: list, indent: int = 2, width: int = DEFAULT_WIDTH - 4, quote: bool = True):
+    """Print a comma-separated list with word wrapping.
+
+    Args:
+        label: The label to display before the list
+        items: List of items to display
+        indent: Number of spaces to indent
+        width: Maximum width for wrapping
+        quote: Whether to wrap items in single quotes
+    """
+    spaces = " " * indent
+    if not items:
+        print(f"{spaces}{Colors.DIM}{label}:{Colors.RESET} {Colors.DIM}(none){Colors.RESET}")
+        return
+
+    # Format items
+    if quote:
+        formatted = [f"'{item}'" for item in items]
+    else:
+        formatted = [str(item) for item in items]
+
+    # Calculate available width for items (after label)
+    label_width = len(label) + 2  # ": "
+    available_width = width - label_width
+
+    # Build lines with word wrapping
+    lines = []
+    current_line = ""
+    for i, item in enumerate(formatted):
+        separator = ", " if i < len(formatted) - 1 else ""
+        addition = item + separator
+
+        if not current_line:
+            current_line = addition
+        elif len(current_line) + len(addition) <= available_width:
+            current_line += addition
+        else:
+            lines.append(current_line.rstrip())
+            current_line = addition
+
+    if current_line:
+        lines.append(current_line.rstrip())
+
+    # Print first line with label
+    print(f"{spaces}{Colors.DIM}{label}:{Colors.RESET} {lines[0]}")
+
+    # Print continuation lines with proper indentation
+    continuation_indent = " " * (indent + label_width)
+    for line in lines[1:]:
+        print(f"{continuation_indent}{line}")
+
+
+def print_status_summary(applied: int, in_progress: int, pending: int, discarded: int, indent: int = 2):
+    """Print a formatted job status summary line."""
+    spaces = " " * indent
+    parts = []
+    if applied:
+        parts.append(f"{Colors.GREEN}✓ {applied} applied{Colors.RESET}")
+    if in_progress:
+        parts.append(f"{Colors.CYAN}▶ {in_progress} in progress{Colors.RESET}")
+    if pending:
+        parts.append(f"{Colors.YELLOW}○ {pending} pending{Colors.RESET}")
+    if discarded:
+        parts.append(f"{Colors.RED}✗ {discarded} discarded{Colors.RESET}")
+
+    if parts:
+        print(f"{spaces}" + "  •  ".join(parts))
 
 
 def print_box(title: str, content: str, width: int = DEFAULT_WIDTH - 2, indent: int = 2):
