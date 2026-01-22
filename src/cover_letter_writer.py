@@ -69,6 +69,7 @@ Yours <INSERT_SIGNOFF>,
 \end{document}
 """
 
+
 def escape_latex(text: str) -> str:
     """Escape special LaTeX characters in text."""
     replacements = {
@@ -250,6 +251,8 @@ def generate_cover_letter_topics(
 
     prompt = f"""Analyze this job description and candidate background to identify cover letter topics.
 
+TODAY'S DATE: {datetime.now().strftime("%B %Y")}
+
 JOB DESCRIPTION:
 {job_description}
 
@@ -357,6 +360,8 @@ AVOID THESE AI WRITING PATTERNS:
 ---
 
 TASK: Write a cover letter for {job_title} at {company}.
+
+TODAY'S DATE: {datetime.now().strftime("%B %Y")}
 
 INSTRUCTIONS:
 {chr(10).join(f"- {instruction}" for instruction in writing_instructions)}
