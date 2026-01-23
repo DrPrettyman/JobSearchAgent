@@ -89,6 +89,60 @@ Focus on actual job postings, not job board listing pages."""
     return []
 
 
+def fetch_job_details(
+    url: str,
+    on_progress: ProgressCallbackType = print_progress
+) -> dict | None:
+    """Fetch job details from a URL using Claude with web tools.
+
+    Returns a dict with: company, title, link, location, description, addressee, full_description
+    Returns None if extraction fails.
+    """
+    prompt = f"""Visit this job posting URL and extract the job details: {url}
+
+Return ONLY a JSON object with this structure, no other text:
+{{
+  "company": "Company Name",
+  "title": "Job Title",
+  "location": "Location or Remote",
+  "description": "Brief 2-3 sentence summary of the role",
+  "addressee": "Hiring Manager Name or null if not found",
+  "full_description": "The complete job description text"
+}}
+
+If you cannot access the page or extract the details, return: {{"error": "reason"}}"""
+
+    success, response = run_claude(
+        prompt,
+        timeout=120,
+        tools=["WebFetch"]
+    )
+
+    if not success:
+        on_progress(f"  Failed to fetch job details: {response}", "error")
+        return None
+
+    try:
+        json_str = extract_json_from_response(response)
+        result = json.loads(json_str)
+
+        if not isinstance(result, dict):
+            return None
+
+        if "error" in result:
+            on_progress(f"  Could not extract job details: {result['error']}", "error")
+            return None
+
+        # Add the original URL as the link
+        result["link"] = url
+
+        return result
+
+    except json.JSONDecodeError:
+        on_progress("  Could not parse response as JSON", "error")
+        return None
+
+
 def fetch_full_description(
     url: str,
     on_progress: ProgressCallbackType = print_progress

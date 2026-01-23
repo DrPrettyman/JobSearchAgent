@@ -2,12 +2,14 @@
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QFrame, QScrollArea, QButtonGroup, QSizePolicy, QLineEdit
+    QFrame, QScrollArea, QButtonGroup, QSizePolicy, QLineEdit, QMessageBox
 )
 from PySide6.QtCore import Qt, Signal
 
 from data_handlers import User, Job, JobStatus
 from gui.widgets.job_card import JobCard
+from gui.widgets.add_job_dialog import AddJobDialog
+from gui.workers import Worker
 from gui.styles import make_card
 
 
@@ -84,6 +86,7 @@ class JobsListPage(QWidget):
         super().__init__(parent)
         self.user = user
         self.current_filter = "pending"
+        self.current_worker = None
         self._setup_ui()
 
     def _setup_ui(self):
@@ -203,8 +206,56 @@ class JobsListPage(QWidget):
 
     def _on_add_job(self):
         """Handle add job button click."""
-        # TODO: Show add job dialog
-        pass
+        dialog = AddJobDialog(self)
+        if dialog.exec():
+            result = dialog.get_result()
+            if result:
+                if result["mode"] == "url":
+                    self._add_job_from_url(result["url"])
+                else:
+                    self._add_job_manual(result)
+
+    def _add_job_from_url(self, url: str):
+        """Fetch job details from URL and add."""
+        from search_jobs import fetch_job_details
+
+        # Fetch in background
+        def fetch():
+            return fetch_job_details(url)
+
+        self.current_worker = Worker(fetch)
+        self.current_worker.finished.connect(self._on_url_fetched)
+        self.current_worker.error.connect(lambda e: QMessageBox.warning(self, "Error", f"Failed to fetch job: {e}"))
+        self.current_worker.start()
+
+    def _on_url_fetched(self, data: dict | None):
+        """Handle fetched job data from URL."""
+        if not data:
+            QMessageBox.warning(self, "Error", "Could not fetch job details from URL")
+            return
+
+        job = self.user.job_handler.add(
+            company=data.get("company", "Unknown Company"),
+            title=data.get("title", "Unknown Title"),
+            link=data.get("link", ""),
+            location=data.get("location", ""),
+            full_description=data.get("full_description", ""),
+            description=data.get("description", ""),
+            addressee=data.get("addressee"),
+        )
+        self.refresh()
+        self.job_selected.emit(job.id)
+
+    def _add_job_manual(self, data: dict):
+        """Add job with manually entered details."""
+        job = self.user.job_handler.add(
+            company=data["company"],
+            title=data["title"],
+            link=data.get("link", ""),
+            location=data.get("location", ""),
+        )
+        self.refresh()
+        self.job_selected.emit(job.id)
 
     def _on_search_changed(self, text: str):
         """Handle search text changes."""

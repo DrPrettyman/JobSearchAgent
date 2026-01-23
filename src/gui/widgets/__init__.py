@@ -10,6 +10,7 @@ from gui.widgets.query_generate_dialog import QueryGenerateDialog
 from gui.widgets.text_edit_dialog import TextEditDialog
 from gui.widgets.add_questions_dialog import AddQuestionsDialog
 from gui.widgets.credentials_dialog import CredentialsDialog
+from gui.widgets.add_job_dialog import AddJobDialog
 
 __all__ = [
     "JobCard",
@@ -25,4 +26,5 @@ __all__ = [
     "TextEditDialog",
     "AddQuestionsDialog",
     "CredentialsDialog",
+    "AddJobDialog",
 ]
