@@ -35,7 +35,10 @@ def search_query(
     on_progress: ProgressCallbackType = print_progress,
     search_instructions: list[str] | None = None
 ) -> list[dict]:
-    """Search for jobs using a query and return list of job info dicts."""
+    """Search for jobs using a query and return list of job URLs with basic info.
+
+    Returns minimal info (company, title, link). Use fetch_job_details() to get full details.
+    """
 
     search_instructions_block = ""
     if search_instructions:
@@ -45,18 +48,13 @@ def search_query(
     prompt = f"""Search the web for this job search query: {query_str}
 
 Find job postings that match this query.
-Follow links to find the specific job posting if possible (the page which contains the job description), not a page listing many jobs.
-Extract basic info from results.
 {search_instructions_block}
 Return ONLY a JSON array of job objects, no other text:
 [
   {{
     "company": "Company Name",
     "title": "Job Title",
-    "link": "https://full-url-to-job-posting",
-    "location": "Location or Remote",
-    "description": "Brief 2-3 sentence summary of the role from search results",
-    "addressee": "Hiring Manager Name or null if not found"
+    "link": "https://full-url-to-job-posting"
   }}
 ]
 
@@ -65,8 +63,8 @@ Focus on actual job postings, not job board listing pages."""
 
     success, response = run_claude(
         prompt,
-        timeout=300,
-        tools=["WebSearch", "WebFetch"]
+        timeout=180,
+        tools=["WebSearch"]
     )
 
     if not success:
@@ -91,15 +89,22 @@ Focus on actual job postings, not job board listing pages."""
 
 def fetch_job_details(
     url: str,
-    on_progress: ProgressCallbackType = print_progress
+    on_progress: ProgressCallbackType = print_progress,
+    title: str = None,
+    company: str = None
 ) -> dict | None:
     """Fetch job details from a URL using Claude with web tools.
 
     Returns a dict with: company, title, link, location, description, addressee, full_description
     Returns None if extraction fails.
     """
+    
+    extra_prompt = ""
+    if title and company:
+        extra_prompt = f"""\nIf the URL leads to a job board with many postings, try to follow links and extract information relating specifically to {{POSITION: {title}, COMPANY: {company}}}.\n"""
+    
     prompt = f"""Visit this job posting URL and extract the job details: {url}
-
+{extra_prompt}
 Return ONLY a JSON object with this structure, no other text:
 {{
   "company": "Company Name",
@@ -372,10 +377,16 @@ class JobSearcher:
                         job.full_description = description
 
     def _search_for_jobs(self, queries: list[Query]):
-        """Search for jobs using all queries, creating TEMP jobs for crash recovery."""
-        self.on_progress(f"Searching with {len(queries)} queries...", "info")
-        jobs_created = 0
+        """Search for jobs using all queries, creating TEMP jobs for crash recovery.
 
+        Two-phase approach:
+        1. Search phase: collect URLs with basic info from all queries
+        2. Fetch phase: get full details for each URL concurrently
+        """
+        self.on_progress(f"Searching with {len(queries)} queries...", "info")
+
+        # Phase 1: Collect URLs from all queries
+        all_jobs = []
         for i, query in enumerate(queries, 1):
             self.on_progress(f"\n[{i}/{len(queries)}] {query.query}", "info")
             jobs_found = search_query(
@@ -389,20 +400,101 @@ class JobSearcher:
                 if not all(key in job_dict for key in REQUIRED_JOB_FIELDS):
                     continue
 
-                # Create TEMP job for crash recovery
-                job = self.user.job_handler.add_temp(
-                    company=job_dict["company"],
-                    title=job_dict["title"],
-                    link=job_dict["link"],
-                    location=job_dict.get("location", ""),
-                    description=job_dict.get("description", ""),
-                    addressee=job_dict.get("addressee"),
-                    query_ids=[query.id]
-                )
-                jobs_created += 1
-                self.on_progress(f"  Found: {job.title} at {job.company}", "success")
+                # Track which query found this job
+                job_dict["_query_id"] = query.id
+                all_jobs.append(job_dict)
+                self.on_progress(f"  Found: {job_dict['title']} at {job_dict['company']}", "success")
+
+        if not all_jobs:
+            self.on_progress("\nNo jobs found from search queries", "info")
+            return
+
+        self.on_progress(f"\nFound {len(all_jobs)} job URLs total", "info")
+
+        # Phase 2: Fetch full details for all jobs concurrently
+        enriched_jobs = self._fetch_job_details_batch(all_jobs)
+
+        # Phase 3: Create TEMP jobs with enriched data
+        jobs_created = 0
+        for job_dict in enriched_jobs:
+            job = self.user.job_handler.add_temp(
+                company=job_dict["company"],
+                title=job_dict["title"],
+                link=job_dict["link"],
+                location=job_dict.get("location", ""),
+                description=job_dict.get("description", ""),
+                addressee=job_dict.get("addressee"),
+                full_description=job_dict.get("full_description", ""),
+                query_ids=[job_dict["_query_id"]]
+            )
+            jobs_created += 1
 
         self.on_progress(f"\nCreated {jobs_created} temp jobs", "info")
+
+    def _fetch_job_details_batch(
+        self,
+        jobs: list[dict],
+        max_workers: int = 5
+    ) -> list[dict]:
+        """Fetch full details for a batch of jobs concurrently.
+
+        Takes job dicts with minimal info (company, title, link) and enriches
+        them with full details (location, description, addressee, full_description).
+
+        On failure, keeps the original basic info from search results.
+        """
+        if not jobs:
+            return []
+
+        self.on_progress(f"\nFetching details for {len(jobs)} jobs ({max_workers} concurrent)...", "info")
+
+        def fetch_single(job_dict: dict) -> dict:
+            """Fetch details for a single job, return enriched dict."""
+            url = job_dict["link"]
+            details = fetch_job_details(
+                url=url, 
+                on_progress=self.on_progress,
+                title=job_dict.get("title"),
+                company=job_dict.get("company")
+            )
+
+            if details:
+                # Merge fetched details with original info
+                return {
+                    "company": details.get("company", job_dict["company"]),
+                    "title": details.get("title", job_dict["title"]),
+                    "link": url,
+                    "location": details.get("location", ""),
+                    "description": details.get("description", ""),
+                    "addressee": details.get("addressee"),
+                    "full_description": details.get("full_description", ""),
+                }
+            else:
+                # Keep basic info on failure
+                return job_dict
+
+        enriched_jobs = []
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {executor.submit(fetch_single, job): job for job in jobs}
+
+            for i, future in enumerate(as_completed(futures), 1):
+                original_job = futures[future]
+                enriched = future.result()
+
+                if enriched.get("full_description"):
+                    self.on_progress(
+                        f"  [{i}/{len(jobs)}] {enriched['title']} at {enriched['company']}... OK",
+                        "success"
+                    )
+                else:
+                    self.on_progress(
+                        f"  [{i}/{len(jobs)}] {original_job['title']} at {original_job['company']}... Failed (keeping basic info)",
+                        "warning"
+                    )
+
+                enriched_jobs.append(enriched)
+
+        return enriched_jobs
 
     def _merge_temp_jobs(self):
         """Merge duplicate TEMP jobs (same company and title).
@@ -486,15 +578,16 @@ class JobSearcher:
             job.status = JobStatus.DISCARDED
             self.on_progress(f"  {job.title} at {job.company} - UNSUITABLE (discarded)", "warning")
 
-    def process_temp_jobs(self, fetch_descriptions: bool = True, max_workers: int = 5):
+    def process_temp_jobs(self, max_workers: int = 5):
         """Process TEMP jobs through the full validation pipeline.
 
         Steps:
         1. Merge duplicates (same company/title)
         2. Validate job-board listings against company careers pages
-        3. Fetch full descriptions (if fetch_descriptions=True)
-        4. Filter out unsuitable jobs based on user's background
-        5. Promote remaining TEMP jobs to PENDING status
+        3. Filter out unsuitable jobs based on user's background
+        4. Promote remaining TEMP jobs to PENDING status
+
+        Note: Full descriptions are fetched during _search_for_jobs() via fetch_job_details().
         """
         self._merge_temp_jobs()
 
@@ -507,10 +600,6 @@ class JobSearcher:
 
         # Validate job-board listings against company careers pages
         self._validate_careers_pages(max_workers=max_workers)
-
-        # Fetch full descriptions concurrently (skip if already fetched during validation)
-        if fetch_descriptions:
-            self._fetch_full_descriptions(max_workers=max_workers)
 
         # Filter out unsuitable jobs
         self._filter_unsuitable_jobs()
@@ -526,12 +615,11 @@ class JobSearcher:
         
         self.on_progress(f"  {len(promoted_job_ids)} suitable jobs remaining", "info")
 
-    def search(self, query_ids: list[int] = None, fetch_descriptions: bool = True):
+    def search(self, query_ids: list[int] = None):
         """Run the full job search pipeline.
 
         Args:
             query_ids: List of query IDs to search with. If None, uses all queries.
-            fetch_descriptions: Whether to fetch full job descriptions.
         """
         all_queries = list(self.user.query_handler)
         if query_ids is not None:
@@ -544,10 +632,10 @@ class JobSearcher:
             self.on_progress("No search queries configured. Generate queries first.", "warning")
             return
 
-        # Run new searches (creates TEMP jobs)
+        # Run new searches (creates TEMP jobs with full descriptions)
         if queries:
             self._search_for_jobs(queries)
 
-        # Process all TEMP jobs (fetch descriptions, filter unsuitable)
-        self.process_temp_jobs(fetch_descriptions=fetch_descriptions)
+        # Process all TEMP jobs (validate, filter unsuitable)
+        self.process_temp_jobs()
         

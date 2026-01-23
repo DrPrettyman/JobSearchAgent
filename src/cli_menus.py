@@ -1539,11 +1539,7 @@ class UserOptions:
             elif action == "jobs_pending":
                 self.jobs_menu(job_type="pending")
             elif action == "search_all":
-                fetch_desc = inquirer.confirm(
-                    message="Fetch full job descriptions? (slower but more complete)",
-                    default=True
-                ).execute()
-                self.job_searcher.search(fetch_descriptions=fetch_desc)
+                self.job_searcher.search()
                 print()
             elif action == "search_selected":
                 # Show checkbox to select specific queries
@@ -1563,11 +1559,7 @@ class UserOptions:
                     input("Press Enter to continue...")
                     continue
 
-                fetch_desc = inquirer.confirm(
-                    message="Fetch full job descriptions? (slower but more complete)",
-                    default=True
-                ).execute()
-                self.job_searcher.search(query_ids=selected_ids, fetch_descriptions=fetch_desc)
+                self.job_searcher.search(query_ids=selected_ids)
                 print()
   
     def jobs_menu(self, job_type: str = "all"):

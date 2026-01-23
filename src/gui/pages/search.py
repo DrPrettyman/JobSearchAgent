@@ -2,7 +2,7 @@
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QFrame, QScrollArea, QMessageBox, QProgressBar, QCheckBox
+    QFrame, QScrollArea, QMessageBox, QProgressBar
 )
 
 from data_handlers import User
@@ -120,12 +120,6 @@ class SearchPage(QWidget):
         search_layout.setSpacing(12)
 
         search_layout.addWidget(make_section_title("Run Search"))
-
-        # Options
-        self.fetch_descriptions_checkbox = QCheckBox("Fetch full job descriptions (slower but more complete)")
-        self.fetch_descriptions_checkbox.setChecked(True)
-        self.fetch_descriptions_checkbox.setStyleSheet("font-size: 14px; color: #475569; background: transparent;")
-        search_layout.addWidget(self.fetch_descriptions_checkbox)
 
         # Search buttons
         search_btns = QHBoxLayout()
@@ -272,11 +266,10 @@ class SearchPage(QWidget):
         self.search_selected_btn.setEnabled(False)
         self.results_card.hide()
 
-        fetch_descriptions = self.fetch_descriptions_checkbox.isChecked()
         searcher = JobSearcher(user=self.user)
 
         def run_search():
-            return searcher.search(query_ids=query_ids, fetch_descriptions=fetch_descriptions)
+            return searcher.search(query_ids=query_ids)
 
         self.current_worker = Worker(run_search)
         self.current_worker.progress.connect(lambda msg, _: self.search_status.setText(msg))
