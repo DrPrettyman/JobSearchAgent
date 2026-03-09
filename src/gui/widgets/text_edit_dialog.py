@@ -9,11 +9,12 @@ from PySide6.QtCore import Qt
 class TextEditDialog(QDialog):
     """Dialog with a large text area for viewing or editing text."""
 
-    def __init__(self, title: str, text: str, readonly: bool = False, parent=None):
+    def __init__(self, title: str, text: str, readonly: bool = False, parent=None, placeholder: str = ""):
         super().__init__(parent)
         self.setWindowTitle(title)
         self.setMinimumSize(600, 500)
         self._readonly = readonly
+        self._placeholder = placeholder
         self._setup_ui(text)
 
     def _setup_ui(self, text: str):
@@ -25,6 +26,8 @@ class TextEditDialog(QDialog):
         self.text_edit = QTextEdit()
         self.text_edit.setPlainText(text)
         self.text_edit.setReadOnly(self._readonly)
+        if self._placeholder:
+            self.text_edit.setPlaceholderText(self._placeholder)
         self.text_edit.setStyleSheet("""
             QTextEdit {
                 border: 1px solid #e2e8f0;

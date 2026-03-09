@@ -7,6 +7,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, Signal, QUrl
 from PySide6.QtGui import QDesktopServices
 
+import json
 import webbrowser
 import urllib.parse
 
@@ -143,6 +144,10 @@ class JobDetailPage(QWidget):
         google_btn = make_secondary_button("Google This Job")
         google_btn.clicked.connect(self._google_job)
         action_btns.addWidget(google_btn)
+
+        copy_json_btn = make_secondary_button("Copy as JSON")
+        copy_json_btn.clicked.connect(self._copy_as_json)
+        action_btns.addWidget(copy_json_btn)
 
         action_btns.addStretch()
         layout.addLayout(action_btns)
@@ -404,6 +409,22 @@ class JobDetailPage(QWidget):
         header.addWidget(make_section_title("Cover Letter"))
         header.addStretch()
 
+        self.paste_cover_btn = QPushButton("Paste Cover Letter")
+        self.paste_cover_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #059669;
+                color: white;
+                border: none;
+                padding: 6px 12px;
+                border-radius: 6px;
+                font-size: 13px;
+                font-weight: 500;
+            }
+            QPushButton:hover { background-color: #047857; }
+        """)
+        self.paste_cover_btn.clicked.connect(self._paste_cover_letter)
+        header.addWidget(self.paste_cover_btn)
+
         self.generate_btn = QPushButton("Generate Cover Letter")
         self.generate_btn.setStyleSheet("""
             QPushButton {
@@ -658,6 +679,23 @@ class JobDetailPage(QWidget):
             query = urllib.parse.quote(f"careers {self.job.company} {self.job.title}")
             webbrowser.open(f"https://www.google.com/search?q={query}")
 
+    def _copy_as_json(self):
+        """Copy job details as JSON to clipboard."""
+        if self.job is None:
+            return
+        data = {
+            "company": self.job.company,
+            "job_title": self.job.title,
+            "location": self.job.location,
+            "link": self.job.link,
+            "description": self.job.description,
+            "full_description": self.job.full_description,
+            "addressee": self.job.addressee,
+            "status": self.job.status.value,
+        }
+        QApplication.clipboard().setText(json.dumps(data, indent=2))
+        QMessageBox.information(self, "Copied", "Job details copied as JSON")
+
     def _generate_cover_letter(self):
         """Generate cover letter in background thread."""
         if self.job is None:
@@ -890,6 +928,22 @@ class JobDetailPage(QWidget):
             self.refresh()
 
     # === Cover Letter Handlers ===
+
+    def _paste_cover_letter(self):
+        """Paste in a cover letter body manually instead of generating with AI."""
+        if self.job is None:
+            return
+        existing = self.job.cover_letter_body or ""
+        title = "Edit Cover Letter Body" if existing else "Paste Cover Letter Body"
+        hint = "" if existing else "Paste your cover letter body text here (without salutation/closing — those are added automatically)."
+        dialog = TextEditDialog(title, existing, readonly=False, parent=self, placeholder=hint)
+        if dialog.exec():
+            text = dialog.get_text().strip()
+            if text:
+                self.job.cover_letter_body = text
+                self.refresh()
+                # Generate PDF from pasted text
+                self._regenerate_pdf()
 
     def _edit_cover_letter(self):
         """Edit cover letter body in a dialog."""
